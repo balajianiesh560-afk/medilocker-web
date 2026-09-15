@@ -10,6 +10,7 @@ import {
   DEMO_USER,
   AVAILABLE_DOCTORS,
   INITIAL_AUDIT_LOGS,
+  INITIAL_NOTIFICATIONS,
 } from './src/data/sampleData';
 import {
   Patient,
@@ -21,6 +22,7 @@ import {
   MedicalReportRecord,
   TreatmentTimelineRecord,
   CaseHistoryEntry,
+  TreatmentNotification,
 } from './src/types';
 
 dotenv.config();
@@ -40,6 +42,7 @@ interface DatabaseSchema {
   emergencyCases: EmergencyCase[];
   user: User;
   auditLogs: AuditLogEntry[];
+  notifications: TreatmentNotification[];
 }
 
 function loadDatabase(): DatabaseSchema {
@@ -90,6 +93,10 @@ function loadDatabase(): DatabaseSchema {
             parsed.auditLogs && parsed.auditLogs.length > 0
               ? parsed.auditLogs
               : INITIAL_AUDIT_LOGS,
+          notifications:
+            parsed.notifications && parsed.notifications.length > 0
+              ? parsed.notifications
+              : INITIAL_NOTIFICATIONS,
         };
         saveDatabase(data);
         return data;
@@ -104,6 +111,7 @@ function loadDatabase(): DatabaseSchema {
     emergencyCases: INITIAL_EMERGENCY_CASES,
     user: DEMO_USER,
     auditLogs: INITIAL_AUDIT_LOGS,
+    notifications: INITIAL_NOTIFICATIONS,
   };
   saveDatabase(initialData);
   return initialData;
@@ -153,14 +161,44 @@ app.get('/api/health', (_req, res) => {
   });
 });
 
+// In-memory / persisted custom password overrides for staff accounts
+const customCredentials: Record<string, string> = {};
+
 // Authentication
 app.post('/api/auth/login', (req, res) => {
-  const { email, password } = req.body;
+  const { email, password, hospitalName } = req.body;
+  const cleanEmail = (email || '').trim().toLowerCase();
+  const cleanPassword = (password || '').trim();
+  const cleanHospital = (hospitalName || '').trim();
+
+  if (!cleanEmail || !cleanPassword) {
+    return res.status(400).json({
+      success: false,
+      message: 'Both email and password are required.',
+    });
+  }
+
+  // Check custom reset passwords first
+  const customPass = customCredentials[cleanEmail];
+  const isCustomPassMatch = customPass && customPass === cleanPassword;
 
   // Check if matches any available doctor
-  const matchedDoctor = AVAILABLE_DOCTORS.find((d) => d.email.toLowerCase() === email?.toLowerCase());
-  if (matchedDoctor && (password === 'admin123' || password === matchedDoctor.id.toLowerCase())) {
-    db.user = matchedDoctor;
+  const matchedDoctor = AVAILABLE_DOCTORS.find(
+    (d) => d.email.toLowerCase() === cleanEmail || d.id.toLowerCase() === cleanEmail
+  );
+
+  if (
+    matchedDoctor &&
+    (cleanPassword === 'admin123' ||
+      cleanPassword === matchedDoctor.id.toLowerCase() ||
+      isCustomPassMatch ||
+      cleanPassword.length >= 4)
+  ) {
+    const activeUser: User = {
+      ...matchedDoctor,
+      hospitalName: cleanHospital || matchedDoctor.hospitalName,
+    };
+    db.user = activeUser;
     saveDatabase(db);
     return res.json({
       success: true,
@@ -170,7 +208,16 @@ app.post('/api/auth/login', (req, res) => {
   }
 
   // Default demo login credentials
-  if (email === 'admin@hospital.com' && password === 'admin123') {
+  if (
+    (cleanEmail === 'admin@hospital.com' || cleanEmail === 'admin') &&
+    (cleanPassword === 'admin123' || isCustomPassMatch)
+  ) {
+    const activeUser: User = {
+      ...DEMO_USER,
+      hospitalName: cleanHospital || DEMO_USER.hospitalName,
+    };
+    db.user = activeUser;
+    saveDatabase(db);
     return res.json({
       success: true,
       user: db.user,
@@ -178,12 +225,24 @@ app.post('/api/auth/login', (req, res) => {
     });
   }
 
-  // Also allow fallback if valid email
-  if (email && email.includes('@') && password && password.length >= 4) {
+  // Also allow fallback if valid email / staff identifier
+  if (
+    (cleanEmail.includes('@') || cleanEmail.length >= 3) &&
+    (cleanPassword.length >= 4 || isCustomPassMatch)
+  ) {
+    const userRole = 'Emergency Care Clinician';
+    const staffName = cleanEmail.includes('@')
+      ? `${cleanEmail.split('@')[0].toUpperCase()} (Staff)`
+      : `${cleanEmail.toUpperCase()} (Staff)`;
+
     db.user = {
-      ...db.user,
-      email,
-      name: email.split('@')[0].toUpperCase() + ' (Staff)',
+      id: `usr-custom-${Date.now()}`,
+      email: cleanEmail,
+      name: staffName,
+      role: userRole,
+      badgeNumber: `STAFF-${Math.floor(1000 + Math.random() * 9000)}`,
+      hospitalUnit: 'Emergency Medicine Intake',
+      hospitalName: cleanHospital || 'Metropolitan General Hospital',
     };
     saveDatabase(db);
     return res.json({
@@ -195,7 +254,36 @@ app.post('/api/auth/login', (req, res) => {
 
   return res.status(401).json({
     success: false,
-    message: 'Invalid credentials. Please use admin@hospital.com and password admin123',
+    message: 'Invalid credentials. You can use admin@hospital.com / admin123 or reset your password below.',
+  });
+});
+
+// Forgot / Reset Password Endpoint
+app.post('/api/auth/forgot-password', (req, res) => {
+  const { email, newPassword, hospitalName } = req.body;
+  const cleanEmail = (email || '').trim().toLowerCase();
+  const cleanPass = (newPassword || '').trim();
+
+  if (!cleanEmail) {
+    return res.status(400).json({
+      success: false,
+      message: 'Staff email address is required for password recovery.',
+    });
+  }
+
+  const resetPassword = cleanPass || 'admin123';
+  customCredentials[cleanEmail] = resetPassword;
+
+  // Also update db.user if matching
+  if (db.user && db.user.email.toLowerCase() === cleanEmail && hospitalName) {
+    db.user.hospitalName = hospitalName.trim();
+    saveDatabase(db);
+  }
+
+  return res.json({
+    success: true,
+    message: `Password has been reset successfully for ${cleanEmail}. You can now sign in with your updated credentials.`,
+    temporaryPassword: resetPassword,
   });
 });
 
@@ -263,6 +351,403 @@ app.post('/api/audit-logs', (req, res) => {
   }
   saveDatabase(db);
   res.status(201).json(entry);
+});
+
+// ---------------- Notifications API (Doctor-to-Doctor Emergency Treatment) ----------------
+
+app.get('/api/notifications', (req, res) => {
+  const { doctorId, role } = req.query;
+  let list = db.notifications || [];
+
+  if (doctorId && typeof doctorId === 'string') {
+    const docLower = doctorId.toLowerCase();
+    if (role === 'received') {
+      list = list.filter(
+        (n) =>
+          n.recipientDoctorId.toLowerCase() === docLower ||
+          n.recipientDoctorName.toLowerCase().includes(docLower)
+      );
+    } else if (role === 'sent') {
+      list = list.filter(
+        (n) =>
+          n.senderDoctorId.toLowerCase() === docLower ||
+          n.senderDoctorName.toLowerCase().includes(docLower)
+      );
+    } else {
+      list = list.filter(
+        (n) =>
+          n.recipientDoctorId.toLowerCase() === docLower ||
+          n.recipientDoctorName.toLowerCase().includes(docLower) ||
+          n.senderDoctorId.toLowerCase() === docLower ||
+          n.senderDoctorName.toLowerCase().includes(docLower)
+      );
+    }
+  }
+
+  res.json(list);
+});
+
+app.get('/api/notifications/received/:doctorId', (req, res) => {
+  const docLower = req.params.doctorId.toLowerCase();
+  const list = (db.notifications || []).filter(
+    (n) =>
+      n.recipientDoctorId.toLowerCase() === docLower ||
+      n.recipientDoctorName.toLowerCase().includes(docLower)
+  );
+  res.json(list);
+});
+
+app.get('/api/notifications/sent/:doctorId', (req, res) => {
+  const docLower = req.params.doctorId.toLowerCase();
+  const list = (db.notifications || []).filter(
+    (n) =>
+      n.senderDoctorId.toLowerCase() === docLower ||
+      n.senderDoctorName.toLowerCase().includes(docLower)
+  );
+  res.json(list);
+});
+
+app.get('/api/notifications/:id', (req, res) => {
+  const notif = (db.notifications || []).find(
+    (n) => n.id.toLowerCase() === req.params.id.toLowerCase()
+  );
+  if (!notif) {
+    return res.status(404).json({ error: 'Notification not found' });
+  }
+  res.json(notif);
+});
+
+app.post('/api/notifications', (req, res) => {
+  const body = req.body;
+  const now = new Date().toISOString();
+  const notifId = body.id || `NOTIF-${Math.floor(1000 + Math.random() * 9000)}`;
+
+  const newNotif: TreatmentNotification = {
+    id: notifId,
+    patientId: body.patientId,
+    patientName: body.patientName,
+    patientAge: body.patientAge,
+    patientGender: body.patientGender,
+    patientFingerprintRef: body.patientFingerprintRef,
+    patientBloodType: body.patientBloodType,
+
+    senderDoctorId: body.senderDoctorId,
+    senderDoctorName: body.senderDoctorName,
+    senderHospital: body.senderHospital,
+    senderRole: body.senderRole || 'Emergency Attending Physician',
+
+    recipientDoctorId: body.recipientDoctorId,
+    recipientDoctorName: body.recipientDoctorName,
+    recipientHospital: body.recipientHospital,
+
+    treatmentDate: body.treatmentDate || now.split('T')[0],
+    emergencyReason: body.emergencyReason || 'Emergency Consultation',
+    diagnosis: body.diagnosis || 'Acute Evaluation',
+    clinicalFindings: body.clinicalFindings,
+    treatmentProvided: body.treatmentProvided || 'Immediate emergency medical intervention',
+    procedures: body.procedures,
+    medications: body.medications || [],
+    followUpInstructions: body.followUpInstructions,
+    notes: body.notes,
+    attachments: body.attachments || [],
+
+    status: 'Pending Review',
+    createdAt: now,
+  };
+
+  db.notifications = db.notifications || [];
+  db.notifications.unshift(newNotif);
+
+  // Record Audit Trail: NOTIFICATION_SENT
+  const auditEntry: AuditLogEntry = {
+    id: `AUD-${Date.now().toString().slice(-4)}-${Math.floor(10 + Math.random() * 90)}`,
+    timestamp: now,
+    action: 'NOTIFICATION_SENT',
+    actorId: newNotif.senderDoctorId,
+    actorName: newNotif.senderDoctorName,
+    actorBadge: body.senderBadge || 'STAFF-EMG',
+    actorRole: newNotif.senderRole || 'Emergency Attending Physician',
+    actorHospital: newNotif.senderHospital,
+    targetPatientId: newNotif.patientId,
+    targetPatientName: newNotif.patientName,
+    targetRecordId: newNotif.id,
+    details: `Emergency treatment update securely transmitted to Dr. ${newNotif.recipientDoctorName} (${newNotif.recipientHospital}) for patient ${newNotif.patientName} (${newNotif.patientId}). Diagnosis: ${newNotif.diagnosis}.`,
+    status: 'SUCCESS',
+  };
+  db.auditLogs.unshift(auditEntry);
+
+  saveDatabase(db);
+  res.status(201).json({ success: true, notification: newNotif });
+});
+
+app.put('/api/notifications/:id/view', (req, res) => {
+  const notif = (db.notifications || []).find((n) => n.id === req.params.id);
+  if (!notif) {
+    return res.status(404).json({ error: 'Notification not found' });
+  }
+
+  const { doctorId, doctorName, doctorBadge, doctorRole, doctorHospital } = req.body;
+  const now = new Date().toISOString();
+  notif.viewedAt = now;
+
+  if (notif.status === 'Pending Review') {
+    notif.status = 'Reviewed';
+    notif.reviewedAt = now;
+
+    const auditEntry: AuditLogEntry = {
+      id: `AUD-${Date.now().toString().slice(-4)}-${Math.floor(10 + Math.random() * 90)}`,
+      timestamp: now,
+      action: 'NOTIFICATION_VIEWED',
+      actorId: doctorId || notif.recipientDoctorId,
+      actorName: doctorName || notif.recipientDoctorName,
+      actorBadge: doctorBadge || 'STAFF-REG',
+      actorRole: doctorRole || 'Regular Attending Doctor',
+      actorHospital: doctorHospital || notif.recipientHospital,
+      targetPatientId: notif.patientId,
+      targetPatientName: notif.patientName,
+      targetRecordId: notif.id,
+      details: `Dr. ${doctorName || notif.recipientDoctorName} viewed emergency treatment update ${notif.id} for patient ${notif.patientName}.`,
+      status: 'SUCCESS',
+    };
+    db.auditLogs.unshift(auditEntry);
+  }
+
+  saveDatabase(db);
+  res.json({ success: true, notification: notif });
+});
+
+app.put('/api/notifications/:id/reject', (req, res) => {
+  const notif = (db.notifications || []).find((n) => n.id === req.params.id);
+  if (!notif) {
+    return res.status(404).json({ error: 'Notification not found' });
+  }
+
+  const { rejectionReason, doctorId, doctorName, doctorBadge, doctorRole, doctorHospital } =
+    req.body;
+  const now = new Date().toISOString();
+
+  notif.status = 'Rejected';
+  notif.rejectionReason =
+    rejectionReason || 'Treatment details rejected by primary attending physician.';
+  notif.reviewedAt = now;
+  notif.updatedAt = now;
+
+  const auditEntry: AuditLogEntry = {
+    id: `AUD-${Date.now().toString().slice(-4)}-${Math.floor(10 + Math.random() * 90)}`,
+    timestamp: now,
+    action: 'NOTIFICATION_REJECTED',
+    actorId: doctorId || notif.recipientDoctorId,
+    actorName: doctorName || notif.recipientDoctorName,
+    actorBadge: doctorBadge || 'STAFF-REG',
+    actorRole: doctorRole || 'Regular Attending Doctor',
+    actorHospital: doctorHospital || notif.recipientHospital,
+    targetPatientId: notif.patientId,
+    targetPatientName: notif.patientName,
+    targetRecordId: notif.id,
+    details: `Emergency treatment notification ${notif.id} rejected by Dr. ${
+      doctorName || notif.recipientDoctorName
+    }. Reason: ${notif.rejectionReason}`,
+    status: 'FLAGGED',
+  };
+  db.auditLogs.unshift(auditEntry);
+
+  saveDatabase(db);
+  res.json({ success: true, notification: notif });
+});
+
+app.post('/api/notifications/:id/update-patient-record', (req, res) => {
+  const notifId = req.params.id;
+  const notif = (db.notifications || []).find((n) => n.id === notifId);
+  if (!notif) {
+    return res.status(404).json({ error: 'Notification not found' });
+  }
+
+  const patient = db.patients.find((p) => p.id.toLowerCase() === notif.patientId.toLowerCase());
+  if (!patient) {
+    return res.status(404).json({ error: 'Associated patient record not found' });
+  }
+
+  const { doctorId, doctorName, doctorBadge, doctorRole, doctorHospital } = req.body;
+  const now = new Date().toISOString();
+  const treatmentDateStr = notif.treatmentDate || now.split('T')[0];
+
+  // 1. Append Case History Entry
+  const newCaseHistoryEntry: CaseHistoryEntry = {
+    id: `ENC-EMG-${Date.now().toString().slice(-4)}`,
+    date: treatmentDateStr,
+    incidentTitle: `Emergency Encounter: ${notif.emergencyReason || notif.diagnosis}`,
+    details: `Emergency treatment administered by ${notif.senderDoctorName} at ${notif.senderHospital}.\nTreatment: ${notif.treatmentProvided}.\nProcedures: ${notif.procedures || 'None reported'}.\nClinical Findings: ${notif.clinicalFindings || 'None documented'}.\nFollow-up: ${notif.followUpInstructions || 'Follow up with regular care team.'}`,
+    location: notif.senderHospital,
+    severity: 'Severe',
+    treatingPhysician: notif.senderDoctorName,
+    treatingPhysicianId: notif.senderDoctorId,
+    doctorId: notif.senderDoctorId,
+    hospitalName: notif.senderHospital,
+    diagnosis: notif.diagnosis,
+    caseStudyNotes:
+      notif.notes || 'Emergency treatment notification verified and merged by primary physician.',
+    outcome: 'Emergency Care Stabilized - Appended to Primary Medical Record',
+    createdAt: now,
+  };
+  patient.caseHistory = [newCaseHistoryEntry, ...(patient.caseHistory || [])];
+
+  // 2. Append Diagnosis Record
+  let newDiagnosisRecord: DiagnosisRecord | undefined;
+  if (notif.diagnosis) {
+    newDiagnosisRecord = {
+      id: `DX-EMG-${Date.now().toString().slice(-4)}`,
+      condition: notif.diagnosis,
+      status: 'Active',
+      diagnosedDate: treatmentDateStr,
+      doctorName: notif.senderDoctorName,
+      doctorId: notif.senderDoctorId,
+      hospitalName: notif.senderHospital,
+      severity: 'Emergency Acute',
+      treatmentPlan: notif.treatmentProvided,
+      notes: `Emergency intake at ${notif.senderHospital}. Verified and approved by regular physician ${
+        doctorName || notif.recipientDoctorName
+      }.`,
+      createdAt: now,
+    };
+    patient.diagnoses = [newDiagnosisRecord, ...(patient.diagnoses || [])];
+  }
+
+  // 3. Append Medication Records
+  const addedMedicationIds: string[] = [];
+  if (notif.medications && notif.medications.length > 0) {
+    const medRecords: MedicationRecord[] = notif.medications.map((m, idx) => {
+      const medId = `MED-EMG-${Date.now().toString().slice(-4)}-${idx + 1}`;
+      addedMedicationIds.push(medId);
+      return {
+        id: medId,
+        name: m.name,
+        dosage: m.dosage,
+        frequency: m.frequency,
+        prescribedDate: treatmentDateStr,
+        status: 'Active',
+        prescribedByDoctor: notif.senderDoctorName,
+        prescribedByDoctorId: notif.senderDoctorId,
+        hospitalName: notif.senderHospital,
+        instructions: [m.duration ? `Duration: ${m.duration}` : '', m.instructions || '']
+          .filter(Boolean)
+          .join(' • '),
+        createdAt: now,
+      };
+    });
+    patient.medications = [...medRecords, ...(patient.medications || [])];
+  }
+
+  // 4. Append Medical Report Record
+  const primaryAttachment =
+    notif.attachments && notif.attachments.length > 0 ? notif.attachments[0] : undefined;
+  const newReportRecord: MedicalReportRecord = {
+    id: `REP-EMG-${Date.now().toString().slice(-4)}`,
+    title: `Emergency Treatment Summary: ${notif.diagnosis}`,
+    category: 'Discharge Summary',
+    type: 'Discharge Summary',
+    reportDate: treatmentDateStr,
+    hospitalName: notif.senderHospital,
+    doctorName: notif.senderDoctorName,
+    doctorId: notif.senderDoctorId,
+    summary: `Emergency Treatment: ${notif.treatmentProvided}.\nReason: ${notif.emergencyReason}.\nFindings: ${
+      notif.clinicalFindings || 'Evaluated'
+    }.\nFollow-up: ${notif.followUpInstructions || 'Standard protocol'}.`,
+    findings: notif.clinicalFindings,
+    keyFindings: [
+      `Emergency Reason: ${notif.emergencyReason}`,
+      `Procedures: ${notif.procedures || 'None reported'}`,
+      `Prescriptions: ${
+        notif.medications?.map((m) => `${m.name} ${m.dosage}`).join(', ') || 'None'
+      }`,
+    ],
+    fileName: primaryAttachment?.fileName || 'Emergency_Treatment_Update.pdf',
+    fileUrl: primaryAttachment?.fileUrl,
+    createdAt: now,
+  };
+  patient.medicalReports = [newReportRecord, ...(patient.medicalReports || [])];
+
+  // 5. Append Treatment Timeline Record
+  const newTimelineRecord: TreatmentTimelineRecord = {
+    id: `TL-EMG-${Date.now().toString().slice(-4)}`,
+    date: treatmentDateStr,
+    stageTitle: `Emergency Treatment: ${notif.emergencyReason || notif.diagnosis}`,
+    milestone: `Emergency Care at ${notif.senderHospital}`,
+    category: 'Admission',
+    doctorName: notif.senderDoctorName,
+    doctorId: notif.senderDoctorId,
+    hospitalName: notif.senderHospital,
+    details: `Emergency treatment administered by ${notif.senderDoctorName} (${
+      notif.senderHospital
+    }). Verified and integrated into primary medical record by ${
+      doctorName || notif.recipientDoctorName
+    }.`,
+    outcome: 'Emergency care verified and appended to patient medical locker.',
+    createdAt: now,
+  };
+  patient.treatmentTimeline = [newTimelineRecord, ...(patient.treatmentTimeline || [])];
+
+  patient.updatedAt = now;
+
+  // Update Notification
+  notif.status = 'Record Updated';
+  notif.reviewedAt = now;
+  notif.updatedAt = now;
+  notif.recordUpdatedDetails = {
+    caseHistoryId: newCaseHistoryEntry.id,
+    diagnosisId: newDiagnosisRecord?.id,
+    medicationIds: addedMedicationIds,
+    reportId: newReportRecord.id,
+    timelineId: newTimelineRecord.id,
+    updatedByDoctorName: doctorName || notif.recipientDoctorName,
+    updatedAt: now,
+  };
+
+  // Add 2 Audit Trail Entries: TREATMENT_UPDATE_ACCEPTED and PATIENT_RECORD_UPDATED
+  const auditAccept: AuditLogEntry = {
+    id: `AUD-${Date.now().toString().slice(-4)}-1`,
+    timestamp: now,
+    action: 'TREATMENT_UPDATE_ACCEPTED',
+    actorId: doctorId || notif.recipientDoctorId,
+    actorName: doctorName || notif.recipientDoctorName,
+    actorBadge: doctorBadge || 'STAFF-REG',
+    actorRole: doctorRole || 'Regular Attending Doctor',
+    actorHospital: doctorHospital || notif.recipientHospital,
+    targetPatientId: patient.id,
+    targetPatientName: patient.fullName,
+    targetRecordId: notif.id,
+    details: `Regular doctor approved emergency treatment notification ${notif.id} from ${notif.senderDoctorName} (${notif.senderHospital}).`,
+    status: 'SUCCESS',
+  };
+
+  const auditUpdate: AuditLogEntry = {
+    id: `AUD-${Date.now().toString().slice(-4)}-2`,
+    timestamp: new Date(Date.now() + 20).toISOString(),
+    action: 'PATIENT_RECORD_UPDATED',
+    actorId: doctorId || notif.recipientDoctorId,
+    actorName: doctorName || notif.recipientDoctorName,
+    actorBadge: doctorBadge || 'STAFF-REG',
+    actorRole: doctorRole || 'Regular Attending Doctor',
+    actorHospital: doctorHospital || notif.recipientHospital,
+    targetPatientId: patient.id,
+    targetPatientName: patient.fullName,
+    targetRecordId: patient.id,
+    details: `Patient medical locker updated: appended emergency case history (${newCaseHistoryEntry.id}), diagnosis (${
+      newDiagnosisRecord?.id || 'N/A'
+    }), ${addedMedicationIds.length} medication(s), report (${newReportRecord.id}), and timeline milestone.`,
+    status: 'SUCCESS',
+  };
+
+  db.auditLogs.unshift(auditUpdate);
+  db.auditLogs.unshift(auditAccept);
+
+  saveDatabase(db);
+
+  return res.json({
+    success: true,
+    message: 'Patient record successfully updated with emergency treatment details.',
+    notification: notif,
+    patient,
+  });
 });
 
 // ---------------- Patients CRUD ----------------
@@ -963,6 +1448,7 @@ app.post('/api/reset-demo-data', (_req, res) => {
     emergencyCases: INITIAL_EMERGENCY_CASES,
     user: DEMO_USER,
     auditLogs: [],
+    notifications: INITIAL_NOTIFICATIONS,
   };
   saveDatabase(db);
   res.json({ success: true, message: 'Database reset to default demo records' });

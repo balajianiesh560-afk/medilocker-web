@@ -21,6 +21,7 @@ import {
   Lock,
   ShieldAlert,
   Building2,
+  Bell,
 } from 'lucide-react';
 import { Patient, AISummaryResult, CaseHistoryEntry, User } from '../types';
 import { api } from '../services/api';
@@ -37,6 +38,7 @@ interface PatientProfileViewProps {
   onEdit: (patient: Patient) => void;
   onDelete: (patientId: string) => void;
   onUpdatePatient: (updated: Patient) => void;
+  onNotify?: (patientId: string) => void;
 }
 
 export const PatientProfileView: React.FC<PatientProfileViewProps> = ({
@@ -47,6 +49,7 @@ export const PatientProfileView: React.FC<PatientProfileViewProps> = ({
   onEdit,
   onDelete,
   onUpdatePatient,
+  onNotify,
 }) => {
   const { showToast } = useToast();
 
@@ -221,6 +224,18 @@ export const PatientProfileView: React.FC<PatientProfileViewProps> = ({
             <span>QR & Wristband</span>
           </button>
 
+          {onNotify && (
+            <button
+              id="profile-notify-doctor-btn"
+              onClick={() => onNotify(patient.id)}
+              className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-teal-600 hover:bg-teal-500 text-white font-bold text-xs shadow-xs transition-colors cursor-pointer"
+              title="Send Emergency Treatment Update to Patient's Regular Doctor"
+            >
+              <Bell className="w-3.5 h-3.5 text-teal-200" />
+              <span>Notify Doctor</span>
+            </button>
+          )}
+
           <button
             id="profile-ai-summary-btn"
             onClick={handleGenerateAISummary}
@@ -332,9 +347,9 @@ export const PatientProfileView: React.FC<PatientProfileViewProps> = ({
 
           {/* Formatted Content */}
           <div className="prose prose-invert max-w-none text-xs leading-relaxed space-y-3 font-sans text-slate-200">
-            {aiSummary.summary.split('### ').map((section, idx) => {
+            {(aiSummary?.summary || '').split('### ').map((section, idx) => {
               if (!section.trim()) return null;
-              const lines = section.split('\n');
+              const lines = (section || '').split('\n');
               const heading = lines[0];
               const body = lines.slice(1).join('\n');
 

@@ -14,6 +14,7 @@ import {
   ChevronRight,
   Zap,
   Globe,
+  Bell,
 } from 'lucide-react';
 import { ActiveView, User } from '../types';
 
@@ -25,6 +26,7 @@ interface SidebarProps {
   onLogout: () => void;
   unidentifiedCount: number;
   emergencyCount: number;
+  pendingNotificationsCount?: number;
   isOpenMobile?: boolean;
   mobileOpen?: boolean;
   onCloseMobile: () => void;
@@ -40,6 +42,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onLogout,
   unidentifiedCount,
   emergencyCount,
+  pendingNotificationsCount = 0,
   isOpenMobile,
   mobileOpen,
   onCloseMobile,
@@ -94,6 +97,16 @@ export const Sidebar: React.FC<SidebarProps> = ({
       icon: Globe,
       badge: 'All Records',
       badgeColor: 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30',
+    },
+    {
+      id: 'notify' as ActiveView,
+      label: 'Notify',
+      icon: Bell,
+      badge:
+        pendingNotificationsCount && pendingNotificationsCount > 0
+          ? pendingNotificationsCount
+          : undefined,
+      badgeColor: 'bg-rose-500 text-white font-black animate-pulse shadow-sm',
     },
     {
       id: 'settings' as ActiveView,
@@ -199,52 +212,60 @@ export const Sidebar: React.FC<SidebarProps> = ({
             const isActive = currentView === item.id;
 
             return (
-              <button
-                key={item.id}
-                id={`nav-${item.id}`}
-                onClick={() => handleItemClick(item.id)}
-                title={isCollapsed ? item.label : undefined}
-                className={`w-full flex items-center rounded-xl text-sm font-medium transition-all ${
-                  isCollapsed ? 'justify-center p-3' : 'justify-between px-3.5 py-2.5'
-                } ${
-                  isActive
-                    ? 'bg-sky-600 text-white shadow-md shadow-sky-600/25 font-semibold'
-                    : 'text-slate-300 hover:bg-slate-800/80 hover:text-white'
-                }`}
-              >
-                <div className={`flex items-center gap-3 min-w-0 ${isCollapsed ? 'justify-center' : ''}`}>
-                  <Icon
-                    className={`w-4 h-4 shrink-0 ${
-                      isActive
-                        ? 'text-white'
-                        : item.highlight
-                        ? 'text-teal-400'
-                        : 'text-slate-400'
-                    }`}
-                  />
-                  {!isCollapsed && <span className="truncate">{item.label}</span>}
-                </div>
-
-                {!isCollapsed && (
-                  <div className="flex items-center gap-1.5 shrink-0 ml-2">
-                    {item.badge !== undefined && (
-                      <span className={`text-[11px] font-bold px-1.5 py-0.5 rounded-full font-mono ${item.badgeColor}`}>
-                        {item.badge}
-                      </span>
-                    )}
-                    {item.highlight && !isActive && (
-                      <span className="text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded bg-teal-500/20 text-teal-300 border border-teal-500/30">
-                        AI
-                      </span>
-                    )}
+              <React.Fragment key={item.id}>
+                {!isCollapsed && item.id === 'global' && (
+                  <div className="pt-3 pb-1.5 px-3">
+                    <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">
+                      Global Options
+                    </span>
                   </div>
                 )}
+                <button
+                  id={`nav-${item.id}`}
+                  onClick={() => handleItemClick(item.id)}
+                  title={isCollapsed ? item.label : undefined}
+                  className={`w-full flex items-center rounded-xl text-sm font-medium transition-all ${
+                    isCollapsed ? 'justify-center p-3' : 'justify-between px-3.5 py-2.5'
+                  } ${
+                    isActive
+                      ? 'bg-sky-600 text-white shadow-md shadow-sky-600/25 font-semibold'
+                      : 'text-slate-300 hover:bg-slate-800/80 hover:text-white'
+                  }`}
+                >
+                  <div className={`flex items-center gap-3 min-w-0 ${isCollapsed ? 'justify-center' : ''}`}>
+                    <Icon
+                      className={`w-4 h-4 shrink-0 ${
+                        isActive
+                          ? 'text-white'
+                          : item.highlight
+                          ? 'text-teal-400'
+                          : 'text-slate-400'
+                      }`}
+                    />
+                    {!isCollapsed && <span className="truncate">{item.label}</span>}
+                  </div>
 
-                {/* Collapsed view badge indicator */}
-                {isCollapsed && item.badge !== undefined && (
-                  <span className="absolute top-1 right-1 w-2 h-2 rounded-full bg-rose-500 ring-2 ring-slate-900" />
-                )}
-              </button>
+                  {!isCollapsed && (
+                    <div className="flex items-center gap-1.5 shrink-0 ml-2">
+                      {item.badge !== undefined && (
+                        <span className={`text-[11px] font-bold px-1.5 py-0.5 rounded-full font-mono ${item.badgeColor}`}>
+                          {item.badge}
+                        </span>
+                      )}
+                      {item.highlight && !isActive && (
+                        <span className="text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded bg-teal-500/20 text-teal-300 border border-teal-500/30">
+                          AI
+                        </span>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Collapsed view badge indicator */}
+                  {isCollapsed && item.badge !== undefined && (
+                    <span className="absolute top-1 right-1 w-2 h-2 rounded-full bg-rose-500 ring-2 ring-slate-900" />
+                  )}
+                </button>
+              </React.Fragment>
             );
           })}
         </nav>

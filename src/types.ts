@@ -105,7 +105,12 @@ export interface AuditLogEntry {
     | 'BLOCKED_UNAUTHORIZED_DELETE'
     | 'RECORD_UPDATED_BY_CREATOR'
     | 'RECORD_DELETED_BY_CREATOR'
-    | 'PATIENT_RECORD_CREATED';
+    | 'PATIENT_RECORD_CREATED'
+    | 'NOTIFICATION_SENT'
+    | 'NOTIFICATION_VIEWED'
+    | 'TREATMENT_UPDATE_ACCEPTED'
+    | 'PATIENT_RECORD_UPDATED'
+    | 'NOTIFICATION_REJECTED';
   actorId: string;
   actorName: string;
   actorBadge: string;
@@ -196,6 +201,76 @@ export interface ChatMessage {
   sourceReferences?: string[];
 }
 
+export type NotificationStatus = 'Pending Review' | 'Reviewed' | 'Record Updated' | 'Rejected';
+
+export interface TreatmentNotificationAttachment {
+  id: string;
+  fileName: string;
+  fileType: 'Prescription' | 'Discharge Summary' | 'Medical Report' | 'Lab Report' | 'Other';
+  fileSize?: string;
+  fileUrl?: string;
+  summary?: string;
+}
+
+export interface PrescribedMedicine {
+  id: string;
+  name: string;
+  dosage: string;
+  frequency: string;
+  duration?: string;
+  instructions?: string;
+}
+
+export interface TreatmentNotification {
+  id: string; // e.g. NOTIF-1092
+  patientId: string;
+  patientName: string;
+  patientAge?: number | string;
+  patientGender?: string;
+  patientFingerprintRef?: string;
+  patientBloodType?: string;
+
+  // Emergency Doctor (Sender)
+  senderDoctorId: string;
+  senderDoctorName: string;
+  senderHospital: string;
+  senderRole?: string;
+
+  // Regular Doctor (Recipient)
+  recipientDoctorId: string;
+  recipientDoctorName: string;
+  recipientHospital: string;
+
+  // Treatment Details
+  treatmentDate: string;
+  emergencyReason: string;
+  diagnosis: string;
+  clinicalFindings?: string;
+  treatmentProvided: string;
+  procedures?: string;
+  medications?: PrescribedMedicine[];
+  followUpInstructions?: string;
+  notes?: string;
+  attachments?: TreatmentNotificationAttachment[];
+
+  // Status & Timestamps
+  status: NotificationStatus;
+  createdAt: string;
+  viewedAt?: string;
+  reviewedAt?: string;
+  updatedAt?: string;
+  rejectionReason?: string;
+  recordUpdatedDetails?: {
+    caseHistoryId?: string;
+    diagnosisId?: string;
+    medicationIds?: string[];
+    reportId?: string;
+    timelineId?: string;
+    updatedByDoctorName?: string;
+    updatedAt?: string;
+  };
+}
+
 export type ActiveView =
   | 'dashboard'
   | 'patients'
@@ -206,4 +281,5 @@ export type ActiveView =
   | 'emergency-cases'
   | 'ai-assistant'
   | 'global'
+  | 'notify'
   | 'settings';

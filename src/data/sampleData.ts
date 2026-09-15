@@ -7,6 +7,7 @@ import {
   MedicationRecord,
   MedicalReportRecord,
   TreatmentTimelineRecord,
+  TreatmentNotification,
 } from '../types';
 
 export const AVAILABLE_DOCTORS: User[] = [
@@ -1481,3 +1482,125 @@ export const INITIAL_AUDIT_LOGS: AuditLogEntry[] = [
     status: 'SUCCESS',
   },
 ];
+
+export const INITIAL_NOTIFICATIONS: TreatmentNotification[] = [
+  {
+    id: 'NOTIF-1092',
+    patientId: 'PID-1042',
+    patientName: 'Liam Alexander Walker',
+    patientAge: 34,
+    patientGender: 'Male',
+    patientFingerprintRef: 'FP-US-89021',
+    patientBloodType: 'O+',
+
+    senderDoctorId: 'usr-metro-02',
+    senderDoctorName: 'Dr. Marcus Vance, MD',
+    senderHospital: 'Metropolitan General Hospital',
+    senderRole: 'Critical Care Attending',
+
+    recipientDoctorId: 'usr-admin-01',
+    recipientDoctorName: 'Dr. Evelyn Reed, MD',
+    recipientHospital: 'St. Jude Memorial Trauma Center',
+
+    treatmentDate: '2026-09-10',
+    emergencyReason: 'Severe Motor Vehicle Collision - Acute Traumatic Extremity Pain',
+    diagnosis: 'Acute Right Tibiofibular Contusion & Grade II Ankle Ligamentous Sprain',
+    clinicalFindings:
+      'Patient arrived via ambulance following high-impact side-angle motor collision. Mild tachycardia (HR 98 bpm), blood pressure stable at 128/82 mmHg. Marked tenderness and ecchymosis along the lateral right malleolus. Neurovascular examination intact distally.',
+    treatmentProvided:
+      'Immobilization with pneumatic posterior splint, ice compression, elevation protocol. Intravenous analgesic loading followed by oral transition.',
+    procedures: 'Closed reduction check, rigid stabilization splinting, portable ankle radiograph interpretation',
+    medications: [
+      {
+        id: 'MED-1',
+        name: 'Ketorolac Tromethamine',
+        dosage: '10 mg',
+        frequency: 'Oral every 6 hours as needed for pain',
+        duration: '5 days',
+        instructions: 'Take with food or milk to prevent GI upset. Do not exceed 5 consecutive days.',
+      },
+      {
+        id: 'MED-2',
+        name: 'Acetaminophen',
+        dosage: '500 mg',
+        frequency: 'Every 8 hours as needed',
+        duration: '7 days',
+        instructions: 'Adjunctive analgesia.',
+      },
+    ],
+    followUpInstructions:
+      'Non-weight bearing on right lower extremity for 72 hours. Transition to boot as tolerated. Urgent outpatient orthopedic review with primary physician within 5–7 days.',
+    notes:
+      'Emergency intervention concluded with hemodynamic stability. Patient was discharged into the care of his family with strict instructions to coordinate definitive care with Dr. Evelyn Reed.',
+    attachments: [
+      {
+        id: 'ATT-101',
+        fileName: 'Metropolitan_ER_Discharge_Summary_PID1042.pdf',
+        fileType: 'Discharge Summary',
+        fileSize: '1.8 MB',
+        summary: 'Official ER triage intake, splinting procedure notes, and medication prescription logs.',
+      },
+      {
+        id: 'ATT-102',
+        fileName: 'Right_Ankle_AP_Lateral_Radiology_Report.pdf',
+        fileType: 'Medical Report',
+        fileSize: '3.2 MB',
+        summary: 'No displaced cortical breach identified; soft tissue swelling around lateral collateral ligaments.',
+      },
+    ],
+    status: 'Pending Review',
+    createdAt: '2026-09-10T04:30:00Z',
+  },
+  {
+    id: 'NOTIF-1088',
+    patientId: 'PID-1088',
+    patientName: 'Elena Sofia Rostova',
+    patientAge: 29,
+    patientGender: 'Female',
+    patientFingerprintRef: 'FP-US-33104',
+    patientBloodType: 'A-',
+
+    senderDoctorId: 'usr-univ-03',
+    senderDoctorName: 'Dr. Sarah Lin, MD',
+    senderHospital: 'University Health Science Center',
+    senderRole: 'Chief of Trauma Surgery',
+
+    recipientDoctorId: 'usr-admin-01',
+    recipientDoctorName: 'Dr. Evelyn Reed, MD',
+    recipientHospital: 'St. Jude Memorial Trauma Center',
+
+    treatmentDate: '2026-09-08',
+    emergencyReason: 'Acute Respiratory Distress & Bronchospastic Exacerbation',
+    diagnosis: 'Severe Acute Bronchospasm Secondary to Occupational Inhalation',
+    clinicalFindings:
+      'Bilateral expiratory wheezing with subcostal retractions. SpO2 91% on room air. Improved to 98% following dual nebulizer therapy.',
+    treatmentProvided:
+      'High-flow humidified supplemental oxygen, continuous nebulized albuterol/ipratropium bromide, IV methylprednisolone 60mg single dose.',
+    procedures: 'Peak flow spirometry, arterial blood gas sampling',
+    medications: [
+      {
+        id: 'MED-3',
+        name: 'Prednisone Oral',
+        dosage: '40 mg',
+        frequency: 'Daily in morning',
+        duration: '5 days',
+        instructions: 'Steroid burst for airway remodeling suppression.',
+      },
+    ],
+    followUpInstructions: 'Pulmonary function test follow-up in 2 weeks. Avoid respiratory irritants.',
+    notes: 'Emergency bronchospasm stabilized; discharged with inhaler refills.',
+    attachments: [
+      {
+        id: 'ATT-103',
+        fileName: 'University_Health_ABG_and_Nebulizer_Record.pdf',
+        fileType: 'Lab Report',
+        fileSize: '850 KB',
+        summary: 'Blood gas values returned to baseline: pH 7.41, PaCO2 39, PaO2 96.',
+      },
+    ],
+    status: 'Record Updated',
+    createdAt: '2026-09-08T18:40:00Z',
+    reviewedAt: '2026-09-09T09:15:00Z',
+  },
+];
+

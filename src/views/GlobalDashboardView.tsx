@@ -30,6 +30,7 @@ import {
   ExternalLink,
   Info,
   ArrowUpDown,
+  Bell,
 } from 'lucide-react';
 import {
   Patient,
@@ -40,6 +41,7 @@ import {
   TreatmentTimelineRecord,
   CaseHistoryEntry,
   AuditLogEntry,
+  ActiveView,
 } from '../types';
 import { api } from '../services/api';
 import { useToast } from '../components/Toast';
@@ -121,6 +123,8 @@ interface GlobalDashboardViewProps {
   currentUser: UserType | null;
   onRefreshData: () => Promise<void>;
   onSwitchUser?: (newUser: UserType) => void;
+  onNavigate?: (view: ActiveView) => void;
+  pendingNotificationsCount?: number;
 }
 
 type GlobalTab =
@@ -137,6 +141,8 @@ export const GlobalDashboardView: React.FC<GlobalDashboardViewProps> = ({
   currentUser,
   onRefreshData,
   onSwitchUser,
+  onNavigate,
+  pendingNotificationsCount = 0,
 }) => {
   const { showToast } = useToast();
 
@@ -374,7 +380,10 @@ export const GlobalDashboardView: React.FC<GlobalDashboardViewProps> = ({
           title: appendReportTitle.trim(),
           category: appendReportCategory,
           summary: appendReportSummary.trim(),
-          keyFindings: appendReportFindings.split('\n').filter((f) => f.trim().length > 0),
+                  keyFindings: (appendReportFindings || '')
+                    .split('\n')
+                    .map((f) => f.trim())
+                    .filter((f) => f.length > 0),
         };
       } else if (appendType === 'caseHistory') {
         if (!appendCaseTitle.trim()) {
@@ -604,7 +613,7 @@ export const GlobalDashboardView: React.FC<GlobalDashboardViewProps> = ({
               >
                 {availableDoctors.map((doc) => (
                   <option key={doc.id} value={doc.id}>
-                    {doc.name} — {doc.hospitalName.split(' ')[0]} ({doc.role})
+                    {doc.name} — {(doc.hospitalName || 'General Hospital').split(' ')[0]} ({doc.role})
                   </option>
                 ))}
               </select>
@@ -957,6 +966,50 @@ export const GlobalDashboardView: React.FC<GlobalDashboardViewProps> = ({
               </div>
             )}
           </div>
+
+          {/* Global Options Section (Bottom-Left of Global Dashboard) */}
+          <div className="pt-4 border-t border-slate-200/80">
+            <div className="bg-gradient-to-r from-slate-900 via-teal-950 to-slate-900 text-white rounded-3xl p-5 border border-teal-800/40 shadow-xl flex flex-col md:flex-row md:items-center justify-between gap-4">
+              <div className="flex items-center gap-3.5">
+                <div className="w-12 h-12 rounded-2xl bg-teal-500/20 border border-teal-500/30 flex items-center justify-center text-teal-300 shrink-0 shadow-inner">
+                  <Globe className="w-6 h-6" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-black uppercase tracking-wider text-teal-400">
+                      Global Options
+                    </span>
+                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-800/80 text-slate-300 border border-slate-700">
+                      Cross-Hospital Network
+                    </span>
+                  </div>
+                  <h3 className="text-base font-black text-white mt-0.5">
+                    Inter-Hospital Clinical Communications & Alerts
+                  </h3>
+                  <p className="text-xs text-slate-300 max-w-xl leading-relaxed">
+                    Transmit emergency treatment updates, procedures, and prescriptions directly to
+                    regular attending physicians across participating hospitals.
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2 shrink-0">
+                <button
+                  id="global-options-notify-btn"
+                  onClick={() => onNavigate?.('notify')}
+                  className="flex items-center gap-2.5 px-5 py-3 rounded-2xl bg-teal-600 hover:bg-teal-500 text-white font-bold text-xs shadow-lg shadow-teal-600/25 transition-all cursor-pointer group"
+                >
+                  <Bell className="w-4 h-4 text-teal-200 group-hover:animate-bounce" />
+                  <span className="font-extrabold text-sm">Notify</span>
+                  {pendingNotificationsCount > 0 && (
+                    <span className="ml-1 px-2 py-0.5 rounded-full text-[10px] font-black bg-rose-500 text-white animate-pulse">
+                      {pendingNotificationsCount}
+                    </span>
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
         </div>
       ) : (
         /* Detailed Centralized Medical History View */
@@ -1018,15 +1071,24 @@ export const GlobalDashboardView: React.FC<GlobalDashboardViewProps> = ({
                 </div>
               </div>
 
-              {/* Action: Append Record Button under current doctor */}
-              <div className="flex items-center gap-2">
+              {/* Action: Append Record & Notify Regular Doctor */}
+              <div className="flex items-center gap-2 flex-wrap">
+                <button
+                  id="global-notify-doctor-btn"
+                  onClick={() => onNavigate?.('notify')}
+                  className="flex items-center gap-2 px-3.5 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-teal-300 border border-slate-700 font-bold text-xs shadow-xs transition-all cursor-pointer"
+                  title="Send Emergency Treatment Update to Patient's Regular Doctor"
+                >
+                  <Bell className="w-4 h-4 text-teal-400" />
+                  <span>Notify Regular Doctor</span>
+                </button>
                 <button
                   id="global-append-record-btn"
                   onClick={() => setShowAppendModal(true)}
                   className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-teal-600 hover:bg-teal-500 text-white font-bold text-xs shadow-md shadow-teal-600/20 transition-all cursor-pointer"
                 >
                   <PlusCircle className="w-4 h-4" />
-                  <span>Append Record ({activeDoctor?.hospitalName.split(' ')[0]})</span>
+                  <span>Append Record ({activeDoctor?.hospitalName ? activeDoctor.hospitalName.split(' ')[0] : 'Clinic'})</span>
                 </button>
               </div>
             </div>

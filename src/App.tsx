@@ -13,9 +13,10 @@ import { EmergencyCasesListView } from './views/EmergencyCasesListView';
 import { AIAssistantView } from './views/AIAssistantView';
 import { GlobalDashboardView } from './views/GlobalDashboardView';
 import { SettingsView } from './views/SettingsView';
+import { NotifyView } from './views/NotifyView';
 import { QRScannerModal } from './components/QRScannerModal';
 import { api } from './services/api';
-import { Patient, EmergencyCase, ActiveView, User } from './types';
+import { Patient, EmergencyCase, ActiveView, User, TreatmentNotification } from './types';
 import { Loader2 } from 'lucide-react';
 
 function MediLockerApp() {
@@ -25,7 +26,12 @@ function MediLockerApp() {
   const [currentUser, setCurrentUser] = useState<User | null>(() => {
     try {
       const saved = localStorage.getItem('emergency_care_user');
-      return saved ? JSON.parse(saved) : null;
+      if (!saved) return null;
+      const parsed = JSON.parse(saved);
+      if (parsed && typeof parsed === 'object' && parsed.id && parsed.name) {
+        return parsed;
+      }
+      return null;
     } catch {
       return null;
     }
@@ -56,9 +62,11 @@ function MediLockerApp() {
   // Core Data States
   const [patients, setPatients] = useState<Patient[]>([]);
   const [emergencyCases, setEmergencyCases] = useState<EmergencyCase[]>([]);
+  const [notifications, setNotifications] = useState<TreatmentNotification[]>([]);
   const [selectedPatient, setSelectedPatient] = useState<Patient | null>(null);
   const [editingPatient, setEditingPatient] = useState<Patient | null>(null);
   const [selectedEmergencyCase, setSelectedEmergencyCase] = useState<EmergencyCase | null>(null);
+  const [notifyInitialPatientId, setNotifyInitialPatientId] = useState<string | null>(null);
 
   // System States
   const [geminiConfigured, setGeminiConfigured] = useState(false);
@@ -68,15 +76,17 @@ function MediLockerApp() {
   const loadData = useCallback(async () => {
     try {
       setIsLoading(true);
-      const [patientsData, casesData, healthData] = await Promise.all([
+      const [patientsData, casesData, healthData, notifsData] = await Promise.all([
         api.getPatients(),
         api.getEmergencyCases(),
         api.getHealth(),
+        api.getNotifications(),
       ]);
 
       setPatients(patientsData);
       setEmergencyCases(casesData);
       setGeminiConfigured(healthData.geminiConfigured);
+      setNotifications(notifsData || []);
 
       // If a patient was selected, refresh their reference
       if (selectedPatient) {
@@ -186,18 +196,31 @@ function MediLockerApp() {
   // Active counts
   const unidentifiedCount = patients.filter((p) => p.status === 'Unidentified').length;
   const emergencyCount = emergencyCases.length;
+  const pendingNotificationsCount = currentUser
+    ? notifications.filter(
+        (n) =>
+          n.status === 'Pending Review' &&
+          (n.recipientDoctorId.toLowerCase() === currentUser.id.toLowerCase() ||
+            n.recipientDoctorName.toLowerCase() === currentUser.name.toLowerCase() ||
+            n.recipientHospital.toLowerCase() === (currentUser.hospitalName || '').toLowerCase())
+      ).length
+    : 0;
 
   return (
     <div className="flex h-screen bg-slate-100 text-slate-900 font-sans antialiased overflow-hidden">
       {/* Sidebar Navigation */}
       <Sidebar
         currentView={activeView}
-        onNavigate={navigateTo}
+        onNavigate={(v) => {
+          if (v === 'notify') setNotifyInitialPatientId(null);
+          navigateTo(v);
+        }}
         user={currentUser}
         currentUser={currentUser}
         onLogout={handleLogout}
         unidentifiedCount={unidentifiedCount}
         emergencyCount={emergencyCount}
+        pendingNotificationsCount={pendingNotificationsCount}
         isOpenMobile={mobileSidebarOpen}
         mobileOpen={mobileSidebarOpen}
         onCloseMobile={() => setMobileSidebarOpen(false)}
@@ -279,6 +302,10 @@ function MediLockerApp() {
                     onEdit={handleStartEditPatient}
                     onDelete={handlePatientDeleted}
                     onUpdatePatient={handlePatientUpdated}
+                    onNotify={(pid) => {
+                      setNotifyInitialPatientId(pid);
+                      navigateTo('notify');
+                    }}
                   />
                 ) : (
                   <div className="bg-white rounded-2xl border border-slate-200/80 p-8 text-center space-y-3">
@@ -332,6 +359,31 @@ function MediLockerApp() {
                       localStorage.setItem('emergency_care_user', JSON.stringify(newUser));
                     } catch {}
                   }}
+                  onNavigate={(view) => {
+                    if (view === 'notify') setNotifyInitialPatientId(null);
+                    navigateTo(view);
+                  }}
+                  pendingNotificationsCount={pendingNotificationsCount}
+                />
+              )}
+
+              {activeView === 'notify' && (
+                <NotifyView
+                  currentUser={currentUser}
+                  patients={patients}
+                  notifications={notifications}
+                  onRefreshNotifications={async () => {
+                    const notifs = await api.getNotifications();
+                    setNotifications(notifs);
+                  }}
+                  onRefreshPatients={loadData}
+                  onNavigateToPatient={(pid) => {
+                    const p = patients.find((pat) => pat.id === pid);
+                    if (p) handleSelectPatient(p);
+                  }}
+                  onNavigate={navigateTo}
+                  showToast={(title, msg, type) => showToast(type || 'success', title, msg)}
+                  initialPatientId={notifyInitialPatientId}
                 />
               )}
 

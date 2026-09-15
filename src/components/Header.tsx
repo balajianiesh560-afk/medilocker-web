@@ -58,6 +58,10 @@ export const Header: React.FC<HeaderProps> = ({
       title: 'Global Medical History Network',
       subtitle: 'Centralized cross-hospital medical history, case history, and reports exchange',
     },
+    notify: {
+      title: 'Notify & Emergency Treatment Updates',
+      subtitle: 'Doctor-to-doctor emergency treatment updates, procedures, and medication routing',
+    },
     settings: {
       title: 'System & Hardware Settings',
       subtitle: 'Platform configuration, database utilities, and biometric simulator',
