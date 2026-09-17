@@ -1,5 +1,5 @@
 import React from 'react';
-import { Menu, AlertOctagon, Bot, Shield, Sparkles, QrCode } from 'lucide-react';
+import { Menu, AlertOctagon, Bot, Shield, Sparkles, QrCode, HeartPulse, Building2 } from 'lucide-react';
 import { ActiveView } from '../types';
 
 interface HeaderProps {
@@ -10,6 +10,8 @@ interface HeaderProps {
   geminiConfigured: boolean;
   isSidebarCollapsed?: boolean;
   onToggleSidebarCollapse?: () => void;
+  hospitalName?: string;
+  onOpenSettings?: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -20,6 +22,8 @@ export const Header: React.FC<HeaderProps> = ({
   geminiConfigured,
   isSidebarCollapsed,
   onToggleSidebarCollapse,
+  hospitalName,
+  onOpenSettings,
 }) => {
   const titles: Record<ActiveView, { title: string; subtitle: string }> = {
     dashboard: {
@@ -110,6 +114,15 @@ export const Header: React.FC<HeaderProps> = ({
       </div>
 
       <div className="flex items-center gap-2 sm:gap-3">
+        {/* Active Hospital Wing Badge */}
+        <div className="hidden xl:flex items-center gap-2 px-3 py-1 rounded-xl bg-teal-50/80 border border-teal-200/80 text-teal-900 text-xs font-semibold shadow-2xs">
+          <HeartPulse className="w-3.5 h-3.5 text-teal-600 animate-pulse" />
+          <span className="truncate max-w-[200px]">{hospitalName || "St. Jude Trauma Center"}</span>
+          <span className="text-[10px] uppercase font-bold text-teal-600 bg-teal-100/80 px-1.5 py-0.2 rounded font-mono">
+            ER Unit
+          </span>
+        </div>
+
         {/* Universal Scan QR Button */}
         {onOpenQRScanner && (
           <button
@@ -123,21 +136,36 @@ export const Header: React.FC<HeaderProps> = ({
           </button>
         )}
 
-        {/* Gemini status indicator badge */}
-        <div
+        {/* Gemini status indicator badge (Online Live vs Standalone) */}
+        <button
           id="gemini-status-indicator"
-          className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold border ${
+          onClick={onOpenSettings}
+          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold border transition-all cursor-pointer shadow-2xs ${
             geminiConfigured
-              ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
-              : 'bg-amber-50 text-amber-800 border-amber-200'
+              ? 'bg-emerald-50 hover:bg-emerald-100/70 text-emerald-800 border-emerald-300'
+              : 'bg-amber-50 hover:bg-amber-100/70 text-amber-800 border-amber-200'
           }`}
-          title={geminiConfigured ? 'Gemini 3.8 Flash Active' : 'Gemini Key Not Set - Using Local Database Fallback'}
+          title={
+            geminiConfigured
+              ? 'Google Gemini 3.8 Flash Online Cloud Intelligence Active'
+              : 'Gemini Key Not Set - Click to Configure Online AI'
+          }
         >
-          <Sparkles className={`w-3.5 h-3.5 ${geminiConfigured ? 'text-emerald-600' : 'text-amber-600'}`} />
+          {geminiConfigured ? (
+            <span className="relative flex h-2 w-2">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+              <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+            </span>
+          ) : (
+            <Sparkles className="w-3.5 h-3.5 text-amber-600" />
+          )}
           <span className="hidden md:inline">
-            {geminiConfigured ? 'Gemini AI Active' : 'AI Offline (Fallback Mode)'}
+            {geminiConfigured ? 'Online Live AI' : 'Offline Mode'}
           </span>
-        </div>
+          <span className="text-[10px] font-mono px-1 rounded bg-black/5 text-slate-600 hidden lg:inline">
+            {geminiConfigured ? 'Gemini 3.8 Flash' : 'Setup Key'}
+          </span>
+        </button>
 
         {/* Quick Emergency Case Action */}
         <button

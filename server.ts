@@ -23,6 +23,10 @@ import {
   TreatmentTimelineRecord,
   CaseHistoryEntry,
   TreatmentNotification,
+  ScanReportRecord,
+  PrescriptionRecord,
+  LabReportRecord,
+  DischargeSummaryRecord,
 } from './src/types';
 
 dotenv.config();
@@ -79,6 +83,22 @@ function loadDatabase(): DatabaseSchema {
                 mergedPatients[idx].treatmentTimeline && mergedPatients[idx].treatmentTimeline.length > 0
                   ? mergedPatients[idx].treatmentTimeline
                   : initial.treatmentTimeline,
+              scanReports:
+                mergedPatients[idx].scanReports && mergedPatients[idx].scanReports.length > 0
+                  ? mergedPatients[idx].scanReports
+                  : initial.scanReports,
+              prescriptions:
+                mergedPatients[idx].prescriptions && mergedPatients[idx].prescriptions.length > 0
+                  ? mergedPatients[idx].prescriptions
+                  : initial.prescriptions,
+              labReports:
+                mergedPatients[idx].labReports && mergedPatients[idx].labReports.length > 0
+                  ? mergedPatients[idx].labReports
+                  : initial.labReports,
+              dischargeSummaries:
+                mergedPatients[idx].dischargeSummaries && mergedPatients[idx].dischargeSummaries.length > 0
+                  ? mergedPatients[idx].dischargeSummaries
+                  : initial.dischargeSummaries,
             };
           } else {
             mergedPatients.push(initial);
@@ -131,8 +151,11 @@ function saveDatabase(data: DatabaseSchema): void {
 let db = loadDatabase();
 
 // Lazy Gemini AI initialization
-function getAIClient(): GoogleGenAI | null {
-  const key = process.env.GEMINI_API_KEY;
+function getAIClient(customKey?: string): GoogleGenAI | null {
+  const key = (customKey && customKey.trim() !== '' && customKey !== 'MY_GEMINI_API_KEY') 
+    ? customKey.trim() 
+    : process.env.GEMINI_API_KEY;
+
   if (!key || key.trim() === '' || key === 'MY_GEMINI_API_KEY') {
     return null;
   }
@@ -1066,6 +1089,97 @@ app.post('/api/patients/:id/append-record', (req, res) => {
     patient.caseHistory = patient.caseHistory || [];
     patient.caseHistory.unshift(ch);
     createdItem = ch;
+  } else if (type === 'scanReport') {
+    const scan: ScanReportRecord = {
+      id: `SCAN-${Date.now().toString().slice(-4)}-${Math.floor(10 + Math.random() * 90)}`,
+      patientId: patient.id,
+      title: record.title || 'Diagnostic Imaging Scan',
+      modality: record.modality || 'X-Ray',
+      bodyRegion: record.bodyRegion || 'Specified Anatomy',
+      date: record.date || now.replace('T', ' ').slice(0, 16),
+      hospitalName: user.hospitalName || 'Attending Hospital',
+      radiologistName: user.name || 'Staff Radiologist',
+      clinicalIndication: record.clinicalIndication || '',
+      technique: record.technique || '',
+      findings: record.findings || '',
+      impression: record.impression || '',
+      status: record.status || 'Normal',
+      imageUrl: record.imageUrl,
+      fileSize: record.fileSize || '15.0 MB',
+      createdAt: now,
+    };
+    patient.scanReports = patient.scanReports || [];
+    patient.scanReports.unshift(scan);
+    createdItem = scan;
+  } else if (type === 'prescription') {
+    const rx: PrescriptionRecord = {
+      id: `RX-${Date.now().toString().slice(-4)}-${Math.floor(10 + Math.random() * 90)}`,
+      patientId: patient.id,
+      medicationName: record.medicationName || 'Prescribed Medicine',
+      dosage: record.dosage || 'Standard Dose',
+      route: record.route || 'Oral',
+      frequency: record.frequency || 'As Directed',
+      timing: record.timing || 'After Food',
+      duration: record.duration || '5 Days',
+      prescribedDate: record.prescribedDate || now.slice(0, 10),
+      prescribingDoctor: user.name || 'Attending Physician',
+      doctorSpecialty: user.role || 'General Medicine',
+      hospitalName: user.hospitalName || 'Attending Hospital',
+      status: record.status || 'Active',
+      dispensedStatus: record.dispensedStatus || 'Dispensed',
+      instructions: record.instructions || '',
+      createdAt: now,
+    };
+    patient.prescriptions = patient.prescriptions || [];
+    patient.prescriptions.unshift(rx);
+    createdItem = rx;
+  } else if (type === 'labReport') {
+    const lab: LabReportRecord = {
+      id: `LAB-${Date.now().toString().slice(-4)}-${Math.floor(10 + Math.random() * 90)}`,
+      patientId: patient.id,
+      testName: record.testName || 'Diagnostic Clinical Chemistry',
+      category: record.category || 'Biochemistry',
+      sampleType: record.sampleType || 'Whole Blood',
+      collectionDate: record.collectionDate || now.replace('T', ' ').slice(0, 16),
+      reportDate: record.reportDate || now.replace('T', ' ').slice(0, 16),
+      laboratoryName: `${user.hospitalName || 'Attending Hospital'} Diagnostic Lab`,
+      pathologistName: user.name || 'Duty Pathologist',
+      status: record.status || 'Completed',
+      overallSummary: record.overallSummary || '',
+      parameters: record.parameters || [],
+      fileUrl: record.fileUrl,
+      createdAt: now,
+    };
+    patient.labReports = patient.labReports || [];
+    patient.labReports.unshift(lab);
+    createdItem = lab;
+  } else if (type === 'dischargeSummary') {
+    const ds: DischargeSummaryRecord = {
+      id: `DIS-${Date.now().toString().slice(-4)}-${Math.floor(10 + Math.random() * 90)}`,
+      patientId: patient.id,
+      admissionDate: record.admissionDate || now.replace('T', ' ').slice(0, 16),
+      dischargeDate: record.dischargeDate || now.replace('T', ' ').slice(0, 16),
+      lengthOfStay: record.lengthOfStay || 'Observation',
+      department: record.department || 'Emergency Medicine',
+      attendingPhysician: user.name || 'Attending Physician',
+      hospitalName: user.hospitalName || 'Attending Hospital',
+      primaryDiagnosis: record.primaryDiagnosis || 'Acute Clinical Episode',
+      icdCode: record.icdCode,
+      secondaryDiagnoses: record.secondaryDiagnoses,
+      clinicalSummary: record.clinicalSummary || '',
+      proceduresPerformed: record.proceduresPerformed || [],
+      conditionAtDischarge: record.conditionAtDischarge || 'Stable',
+      dischargeMedications: record.dischargeMedications || [],
+      dietaryAdvice: record.dietaryAdvice,
+      activityRestrictions: record.activityRestrictions,
+      followUpDate: record.followUpDate,
+      followUpInstructions: record.followUpInstructions,
+      emergencyWarningSigns: record.emergencyWarningSigns,
+      createdAt: now,
+    };
+    patient.dischargeSummaries = patient.dischargeSummaries || [];
+    patient.dischargeSummaries.unshift(ds);
+    createdItem = ds;
   } else {
     return res.status(400).json({ error: `Unsupported record type: ${type}` });
   }
@@ -1133,6 +1247,10 @@ app.put('/api/patients/:id/record', (req, res) => {
   else if (recordType === 'report') list = patient.medicalReports || [];
   else if (recordType === 'timeline') list = patient.treatmentTimeline || [];
   else if (recordType === 'caseHistory') list = patient.caseHistory || [];
+  else if (recordType === 'scanReport') list = patient.scanReports || [];
+  else if (recordType === 'prescription') list = patient.prescriptions || [];
+  else if (recordType === 'labReport') list = patient.labReports || [];
+  else if (recordType === 'dischargeSummary') list = patient.dischargeSummaries || [];
   else return res.status(400).json({ error: 'Invalid record type' });
 
   const recordIndex = list.findIndex((r) => r.id === recordId);
@@ -1150,6 +1268,8 @@ app.put('/api/patients/:id/record', (req, res) => {
     existingRecord.doctorName ||
     existingRecord.prescribedByDoctor ||
     existingRecord.treatingPhysician ||
+    existingRecord.radiologistName ||
+    existingRecord.attendingPhysician ||
     patient.registeredByDoctor;
   const creatorHospital = existingRecord.hospitalName || patient.originHospital;
 
@@ -1254,6 +1374,10 @@ app.delete('/api/patients/:id/record', (req, res) => {
   else if (recordType === 'report') list = patient.medicalReports || [];
   else if (recordType === 'timeline') list = patient.treatmentTimeline || [];
   else if (recordType === 'caseHistory') list = patient.caseHistory || [];
+  else if (recordType === 'scanReport') list = patient.scanReports || [];
+  else if (recordType === 'prescription') list = patient.prescriptions || [];
+  else if (recordType === 'labReport') list = patient.labReports || [];
+  else if (recordType === 'dischargeSummary') list = patient.dischargeSummaries || [];
   else return res.status(400).json({ error: 'Invalid record type' });
 
   const recordIndex = list.findIndex((r) => r.id === recordId);
@@ -1271,6 +1395,8 @@ app.delete('/api/patients/:id/record', (req, res) => {
     existingRecord.doctorName ||
     existingRecord.prescribedByDoctor ||
     existingRecord.treatingPhysician ||
+    existingRecord.radiologistName ||
+    existingRecord.attendingPhysician ||
     patient.registeredByDoctor;
   const creatorHospital = existingRecord.hospitalName || patient.originHospital;
 
@@ -1460,12 +1586,12 @@ const MEDICAL_DISCLAIMER =
   'AI summary is for organizing recorded information only and does not replace professional medical judgment.';
 
 app.post('/api/ai/summary', async (req, res) => {
-  const { patient } = req.body;
+  const { patient, apiKey } = req.body;
   if (!patient) {
     return res.status(400).json({ error: 'Patient data is required' });
   }
 
-  const ai = getAIClient();
+  const ai = getAIClient(apiKey);
 
   // If Gemini API is not configured, return a structured offline fallback
   if (!ai) {
@@ -1553,6 +1679,8 @@ STRICT REQUIREMENTS:
       summary: summaryText,
       generatedAt: new Date().toISOString(),
       isAiAvailable: true,
+      isOnline: true,
+      modelName: 'Gemini 3.8 Flash (Online Live)',
       disclaimer: MEDICAL_DISCLAIMER,
     });
   } catch (error: any) {
@@ -1570,12 +1698,12 @@ STRICT REQUIREMENTS:
 // ---------------- AI Assistant (Gemini Chat) ----------------
 
 app.post('/api/ai/chat', async (req, res) => {
-  const { message, history } = req.body;
+  const { message, history, apiKey } = req.body;
   if (!message) {
     return res.status(400).json({ error: 'Message is required' });
   }
 
-  const ai = getAIClient();
+  const ai = getAIClient(apiKey);
 
   // Hospital Context snapshot
   const contextData = {

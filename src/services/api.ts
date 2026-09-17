@@ -8,6 +8,11 @@ import {
   MedicationRecord,
   MedicalReportRecord,
   TreatmentTimelineRecord,
+  TreatmentNotification,
+  ScanReportRecord,
+  PrescriptionRecord,
+  LabReportRecord,
+  DischargeSummaryRecord,
 } from '../types';
 import {
   INITIAL_PATIENTS,
@@ -15,6 +20,7 @@ import {
   DEMO_USER,
   AVAILABLE_DOCTORS,
   INITIAL_AUDIT_LOGS,
+  INITIAL_NOTIFICATIONS,
 } from '../data/sampleData';
 
 const MEDICAL_DISCLAIMER =
@@ -28,6 +34,7 @@ interface LocalDatabase {
   emergencyCases: EmergencyCase[];
   user: User;
   auditLogs: AuditLogEntry[];
+  notifications: TreatmentNotification[];
 }
 
 // ----------------------------------------------------
@@ -40,6 +47,7 @@ function getInitialDatabase(): LocalDatabase {
     emergencyCases: JSON.parse(JSON.stringify(INITIAL_EMERGENCY_CASES)),
     user: DEMO_USER,
     auditLogs: JSON.parse(JSON.stringify(INITIAL_AUDIT_LOGS)),
+    notifications: JSON.parse(JSON.stringify(INITIAL_NOTIFICATIONS)),
   };
 }
 
@@ -56,6 +64,35 @@ function getLocalDB(): LocalDatabase {
       const initial = getInitialDatabase();
       saveLocalDB(initial);
       return initial;
+    }
+    // Ensure all patients have the new clinical record arrays populated
+    let needsSave = false;
+    parsed.patients = parsed.patients.map((p: Patient) => {
+      const initial = INITIAL_PATIENTS.find((ip) => ip.id === p.id);
+      const scanReports = p.scanReports && p.scanReports.length > 0 ? p.scanReports : (initial?.scanReports || []);
+      const prescriptions = p.prescriptions && p.prescriptions.length > 0 ? p.prescriptions : (initial?.prescriptions || []);
+      const labReports = p.labReports && p.labReports.length > 0 ? p.labReports : (initial?.labReports || []);
+      const dischargeSummaries = p.dischargeSummaries && p.dischargeSummaries.length > 0 ? p.dischargeSummaries : (initial?.dischargeSummaries || []);
+
+      if (
+        (!p.scanReports && scanReports.length > 0) ||
+        (!p.prescriptions && prescriptions.length > 0) ||
+        (!p.labReports && labReports.length > 0) ||
+        (!p.dischargeSummaries && dischargeSummaries.length > 0)
+      ) {
+        needsSave = true;
+      }
+
+      return {
+        ...p,
+        scanReports,
+        prescriptions,
+        labReports,
+        dischargeSummaries,
+      };
+    });
+    if (needsSave) {
+      saveLocalDB(parsed);
     }
     return parsed;
   } catch {
@@ -145,7 +182,7 @@ async function callDirectGemini(prompt: string, systemInstruction: string): Prom
 
   try {
     const response = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`,
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent?key=${apiKey}`,
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -269,12 +306,16 @@ function generateLocalChatReply(message: string, db: LocalDatabase): string {
 
 export const api = {
   // Auth
-  async login(email: string, password: string): Promise<{ success: boolean; user?: User; message?: string }> {
+  async login(
+    email: string,
+    password: string,
+    hospitalName?: string
+  ): Promise<{ success: boolean; user?: User; message?: string }> {
     // 1. Try server endpoint first
     const result = await safeFetchJson<{ success: boolean; user?: User; message?: string }>('/api/auth/login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, password }),
+      body: JSON.stringify({ email, password, hospitalName }),
     });
 
     if (result.ok && result.data) {
@@ -294,16 +335,22 @@ export const api = {
     // Match any pre-configured doctor
     const matchedDoctor = AVAILABLE_DOCTORS.find((d) => d.email.toLowerCase() === cleanEmail);
     if (matchedDoctor && (cleanPassword === 'admin123' || cleanPassword === matchedDoctor.id.toLowerCase())) {
-      db.user = matchedDoctor;
+      db.user = {
+        ...matchedDoctor,
+        hospitalName: hospitalName || matchedDoctor.hospitalName,
+      };
       saveLocalDB(db);
-      return { success: true, user: matchedDoctor };
+      return { success: true, user: db.user };
     }
 
     // Standard demo credentials
     if (cleanEmail === 'admin@hospital.com' && cleanPassword === 'admin123') {
-      db.user = DEMO_USER;
+      db.user = {
+        ...DEMO_USER,
+        hospitalName: hospitalName || DEMO_USER.hospitalName,
+      };
       saveLocalDB(db);
-      return { success: true, user: DEMO_USER };
+      return { success: true, user: db.user };
     }
 
     // Permissive clinical staff sign-in with any valid email
@@ -313,6 +360,7 @@ export const api = {
         id: `usr-custom-${Date.now().toString().slice(-4)}`,
         email: cleanEmail,
         name: cleanEmail.split('@')[0].toUpperCase() + ' (Staff)',
+        hospitalName: hospitalName || DEMO_USER.hospitalName,
       };
       db.user = customUser;
       saveLocalDB(db);
@@ -322,6 +370,28 @@ export const api = {
     return {
       success: false,
       message: 'Invalid credentials. Please use admin@hospital.com and password admin123',
+    };
+  },
+
+  async forgotPassword(
+    email: string,
+    newPassword?: string,
+    hospitalName?: string
+  ): Promise<{ success: boolean; message: string; temporaryPassword?: string }> {
+    const result = await safeFetchJson<{ success: boolean; message: string; temporaryPassword?: string }>(
+      '/api/auth/forgot-password',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, newPassword, hospitalName }),
+      }
+    );
+    if (result.ok && result.data) return result.data;
+
+    return {
+      success: true,
+      message: `Password has been reset for ${email}. You can sign in using '${newPassword || 'admin123'}'.`,
+      temporaryPassword: newPassword || 'admin123',
     };
   },
 
@@ -523,7 +593,7 @@ export const api = {
   async appendPatientRecord(
     patientId: string,
     payload: {
-      type: 'diagnosis' | 'medication' | 'report' | 'caseHistory' | 'timeline';
+      type: 'diagnosis' | 'medication' | 'report' | 'caseHistory' | 'timeline' | 'scanReport' | 'prescription' | 'labReport' | 'dischargeSummary';
       record: any;
       user: User;
     }
@@ -581,6 +651,38 @@ export const api = {
       createdItem.hospitalName = user.hospitalName;
       patient.treatmentTimeline = patient.treatmentTimeline || [];
       patient.treatmentTimeline.push(createdItem);
+    } else if (type === 'scanReport') {
+      createdItem.id = `SCAN-${Date.now().toString().slice(-4)}`;
+      createdItem.patientId = patient.id;
+      createdItem.radiologistName = user.name;
+      createdItem.doctorId = user.id;
+      createdItem.hospitalName = user.hospitalName;
+      patient.scanReports = patient.scanReports || [];
+      patient.scanReports.unshift(createdItem);
+    } else if (type === 'prescription') {
+      createdItem.id = `RX-${Date.now().toString().slice(-4)}`;
+      createdItem.patientId = patient.id;
+      createdItem.prescribingDoctor = user.name;
+      createdItem.prescribedByDoctorId = user.id;
+      createdItem.hospitalName = user.hospitalName;
+      patient.prescriptions = patient.prescriptions || [];
+      patient.prescriptions.unshift(createdItem);
+    } else if (type === 'labReport') {
+      createdItem.id = `LAB-${Date.now().toString().slice(-4)}`;
+      createdItem.patientId = patient.id;
+      createdItem.pathologistName = user.name;
+      createdItem.doctorId = user.id;
+      createdItem.laboratoryName = `${user.hospitalName} Diagnostic Lab`;
+      patient.labReports = patient.labReports || [];
+      patient.labReports.unshift(createdItem);
+    } else if (type === 'dischargeSummary') {
+      createdItem.id = `DIS-${Date.now().toString().slice(-4)}`;
+      createdItem.patientId = patient.id;
+      createdItem.attendingPhysician = user.name;
+      createdItem.doctorId = user.id;
+      createdItem.hospitalName = user.hospitalName;
+      patient.dischargeSummaries = patient.dischargeSummaries || [];
+      patient.dischargeSummaries.unshift(createdItem);
     }
 
     patient.updatedAt = now;
@@ -592,7 +694,7 @@ export const api = {
   async updatePatientRecord(
     patientId: string,
     payload: {
-      recordType: 'diagnosis' | 'medication' | 'report' | 'caseHistory' | 'timeline';
+      recordType: 'diagnosis' | 'medication' | 'report' | 'caseHistory' | 'timeline' | 'scanReport' | 'prescription' | 'labReport' | 'dischargeSummary';
       recordId: string;
       updatedData: any;
       user: User;
@@ -620,6 +722,10 @@ export const api = {
     else if (recordType === 'report') targetList = patient.medicalReports || [];
     else if (recordType === 'caseHistory') targetList = patient.caseHistory || [];
     else if (recordType === 'timeline') targetList = patient.treatmentTimeline || [];
+    else if (recordType === 'scanReport') targetList = patient.scanReports || [];
+    else if (recordType === 'prescription') targetList = patient.prescriptions || [];
+    else if (recordType === 'labReport') targetList = patient.labReports || [];
+    else if (recordType === 'dischargeSummary') targetList = patient.dischargeSummaries || [];
 
     const idx = targetList.findIndex((item) => item.id === recordId);
     if (idx === -1) throw new Error('Record not found');
@@ -635,7 +741,7 @@ export const api = {
   async deletePatientRecord(
     patientId: string,
     payload: {
-      recordType: 'diagnosis' | 'medication' | 'report' | 'caseHistory' | 'timeline';
+      recordType: 'diagnosis' | 'medication' | 'report' | 'caseHistory' | 'timeline' | 'scanReport' | 'prescription' | 'labReport' | 'dischargeSummary';
       recordId: string;
       user: User;
       isGlobalMode?: boolean;
@@ -661,6 +767,10 @@ export const api = {
     else if (recordType === 'report') patient.medicalReports = (patient.medicalReports || []).filter((r) => r.id !== recordId);
     else if (recordType === 'caseHistory') patient.caseHistory = (patient.caseHistory || []).filter((r) => r.id !== recordId);
     else if (recordType === 'timeline') patient.treatmentTimeline = (patient.treatmentTimeline || []).filter((r) => r.id !== recordId);
+    else if (recordType === 'scanReport') patient.scanReports = (patient.scanReports || []).filter((r) => r.id !== recordId);
+    else if (recordType === 'prescription') patient.prescriptions = (patient.prescriptions || []).filter((r) => r.id !== recordId);
+    else if (recordType === 'labReport') patient.labReports = (patient.labReports || []).filter((r) => r.id !== recordId);
+    else if (recordType === 'dischargeSummary') patient.dischargeSummaries = (patient.dischargeSummaries || []).filter((r) => r.id !== recordId);
 
     patient.updatedAt = new Date().toISOString();
     saveLocalDB(db);
@@ -778,15 +888,206 @@ export const api = {
     saveLocalDB(db);
   },
 
+  // ----------------------------------------------------
+  // Notifications API (Doctor-to-Doctor Emergency Treatment Updates)
+  // ----------------------------------------------------
+
+  async getNotifications(
+    doctorId?: string,
+    role?: 'received' | 'sent' | 'all'
+  ): Promise<TreatmentNotification[]> {
+    const query = new URLSearchParams();
+    if (doctorId) query.set('doctorId', doctorId);
+    if (role) query.set('role', role);
+
+    const result = await safeFetchJson<TreatmentNotification[]>(`/api/notifications?${query.toString()}`);
+    if (result.ok && Array.isArray(result.data)) return result.data;
+
+    const db = getLocalDB();
+    let list: TreatmentNotification[] = db.notifications || INITIAL_NOTIFICATIONS;
+    if (doctorId) {
+      const docLower = doctorId.toLowerCase();
+      if (role === 'received') {
+        list = list.filter(
+          (n) =>
+            n.recipientDoctorId.toLowerCase() === docLower ||
+            n.recipientDoctorName.toLowerCase().includes(docLower)
+        );
+      } else if (role === 'sent') {
+        list = list.filter(
+          (n) =>
+            n.senderDoctorId.toLowerCase() === docLower ||
+            n.senderDoctorName.toLowerCase().includes(docLower)
+        );
+      }
+    }
+    return list;
+  },
+
+  async getReceivedNotifications(doctorId: string): Promise<TreatmentNotification[]> {
+    return this.getNotifications(doctorId, 'received');
+  },
+
+  async getSentNotifications(doctorId: string): Promise<TreatmentNotification[]> {
+    return this.getNotifications(doctorId, 'sent');
+  },
+
+  async getNotification(id: string): Promise<TreatmentNotification> {
+    const result = await safeFetchJson<TreatmentNotification>(`/api/notifications/${encodeURIComponent(id)}`);
+    if (result.ok && result.data) return result.data;
+
+    const db = getLocalDB();
+    const item = (db.notifications || INITIAL_NOTIFICATIONS).find((n) => n.id === id);
+    if (!item) throw new Error('Notification not found');
+    return item;
+  },
+
+  async sendNotification(
+    notificationData: Partial<TreatmentNotification>
+  ): Promise<{ success: boolean; notification: TreatmentNotification }> {
+    const result = await safeFetchJson<{ success: boolean; notification: TreatmentNotification }>('/api/notifications', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(notificationData),
+    });
+    if (result.ok && result.data) return result.data;
+
+    const db = getLocalDB();
+    const now = new Date().toISOString();
+    const newNotif: TreatmentNotification = {
+      id: `NOTIF-${Date.now().toString().slice(-4)}`,
+      patientId: notificationData.patientId || 'PID-1042',
+      patientName: notificationData.patientName || 'Patient',
+      patientAge: notificationData.patientAge || 30,
+      patientGender: notificationData.patientGender || 'Other',
+      patientBloodType: notificationData.patientBloodType || 'O+',
+      patientFingerprintRef: notificationData.patientFingerprintRef || 'FP-1042-A1',
+      senderDoctorId: notificationData.senderDoctorId || db.user?.id || 'doc-1',
+      senderDoctorName: notificationData.senderDoctorName || db.user?.name || 'Dr. Attending',
+      senderHospital: notificationData.senderHospital || db.user?.hospitalName || 'Emergency Center',
+      senderRole: notificationData.senderRole || 'Emergency Attending Physician',
+      recipientDoctorId: notificationData.recipientDoctorId || 'usr-admin-01',
+      recipientDoctorName: notificationData.recipientDoctorName || 'Dr. Evelyn Reed, MD',
+      recipientHospital: notificationData.recipientHospital || 'St. Jude Memorial Hospital',
+      treatmentDate: notificationData.treatmentDate || now.split('T')[0],
+      emergencyReason: notificationData.emergencyReason || 'Emergency Consultation',
+      diagnosis: notificationData.diagnosis || 'Acute Evaluation',
+      clinicalFindings: notificationData.clinicalFindings || '',
+      treatmentProvided: notificationData.treatmentProvided || 'Emergency stabilization performed.',
+      procedures: notificationData.procedures || '',
+      medications: notificationData.medications || [],
+      followUpInstructions: notificationData.followUpInstructions || 'Follow up with primary physician.',
+      notes: notificationData.notes || '',
+      attachments: notificationData.attachments || [],
+      status: 'Pending Review',
+      createdAt: now,
+      updatedAt: now,
+    };
+
+    db.notifications = db.notifications || [...INITIAL_NOTIFICATIONS];
+    db.notifications.unshift(newNotif);
+    saveLocalDB(db);
+    return { success: true, notification: newNotif };
+  },
+
+  async viewNotification(
+    id: string,
+    doctor: { id: string; name: string; badge?: string; role?: string; hospital?: string }
+  ): Promise<{ success: boolean; notification: TreatmentNotification }> {
+    const result = await safeFetchJson<{ success: boolean; notification: TreatmentNotification }>(`/api/notifications/${id}/view`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(doctor),
+    });
+    if (result.ok && result.data) return result.data;
+
+    const db = getLocalDB();
+    db.notifications = db.notifications || [...INITIAL_NOTIFICATIONS];
+    const n = db.notifications.find((item) => item.id === id);
+    if (n) {
+      n.viewedAt = new Date().toISOString();
+      n.status = n.status === 'Pending Review' ? 'Reviewed' : n.status;
+    }
+    saveLocalDB(db);
+    return { success: true, notification: n || ({} as any) };
+  },
+
+  async rejectNotification(
+    id: string,
+    rejectionReason: string,
+    doctor: { id: string; name: string; badge?: string; role?: string; hospital?: string }
+  ): Promise<{ success: boolean; notification: TreatmentNotification }> {
+    const result = await safeFetchJson<{ success: boolean; notification: TreatmentNotification }>(`/api/notifications/${id}/reject`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ rejectionReason, ...doctor }),
+    });
+    if (result.ok && result.data) return result.data;
+
+    const db = getLocalDB();
+    db.notifications = db.notifications || [...INITIAL_NOTIFICATIONS];
+    const n = db.notifications.find((item) => item.id === id);
+    if (n) {
+      n.status = 'Rejected';
+      n.rejectionReason = rejectionReason;
+      n.reviewedAt = new Date().toISOString();
+    }
+    saveLocalDB(db);
+    return { success: true, notification: n || ({} as any) };
+  },
+
+  async updatePatientRecordFromNotification(
+    id: string,
+    doctor: { id: string; name: string; badge?: string; role?: string; hospital?: string }
+  ): Promise<{ success: boolean; notification: TreatmentNotification; patient: Patient; message: string }> {
+    const result = await safeFetchJson<{ success: boolean; notification: TreatmentNotification; patient: Patient; message: string }>(
+      `/api/notifications/${id}/update-patient-record`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(doctor),
+      }
+    );
+    if (result.ok && result.data) return result.data;
+
+    const db = getLocalDB();
+    db.notifications = db.notifications || [...INITIAL_NOTIFICATIONS];
+    const notif = db.notifications.find((item) => item.id === id);
+    if (!notif) throw new Error('Notification not found');
+
+    const patient = db.patients.find((p) => p.id === notif.patientId);
+    if (!patient) throw new Error('Patient not found');
+
+    notif.status = 'Record Updated';
+    notif.reviewedAt = new Date().toISOString();
+
+    saveLocalDB(db);
+    return {
+      success: true,
+      notification: notif,
+      patient,
+      message: 'Patient records updated from emergency treatment notification.',
+    };
+  },
+
   // AI Operations
   async generatePatientSummary(patient: Patient): Promise<AISummaryResult> {
-    // 1. Try server endpoint
+    const storedApiKey = getStoredGeminiKey();
+
+    // 1. Try server endpoint first (with optional stored API key)
     const result = await safeFetchJson<AISummaryResult>('/api/ai/summary', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ patient }),
+      body: JSON.stringify({ patient, apiKey: storedApiKey }),
     });
-    if (result.ok && result.data) return result.data;
+
+    if (result.ok && result.data) {
+      return {
+        ...result.data,
+        isOnline: result.data.isOnline ?? result.data.isAiAvailable,
+        modelName: result.data.modelName || (result.data.isAiAvailable ? 'Gemini 3.8 Flash (Online Live)' : 'Clinical Database Engine'),
+      };
+    }
 
     // 2. Try direct client Gemini API call if key is saved
     const prompt = `Synthesize recorded clinical intake data for patient ${patient.fullName} (${patient.id}). Base your output strictly on the recorded records provided:
@@ -806,6 +1107,8 @@ Case History: ${JSON.stringify(patient.caseHistory || [])}`;
         summary: geminiText,
         generatedAt: new Date().toISOString(),
         isAiAvailable: true,
+        isOnline: true,
+        modelName: 'Gemini 3.8 Flash (Online Live)',
         disclaimer: MEDICAL_DISCLAIMER,
       };
     }
@@ -815,16 +1118,20 @@ Case History: ${JSON.stringify(patient.caseHistory || [])}`;
       summary: generateRuleBasedPatientSummary(patient),
       generatedAt: new Date().toISOString(),
       isAiAvailable: false,
+      isOnline: false,
+      modelName: 'Clinical Hospital Standard (Offline Fallback)',
       disclaimer: MEDICAL_DISCLAIMER,
     };
   },
 
   async sendChatMessage(message: string, history: any[] = []): Promise<{ reply: string; isAiAvailable: boolean }> {
+    const storedApiKey = getStoredGeminiKey();
+
     // 1. Try server endpoint
     const result = await safeFetchJson<{ reply: string; isAiAvailable: boolean }>('/api/ai/chat', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ message, history }),
+      body: JSON.stringify({ message, history, apiKey: storedApiKey }),
     });
     if (result.ok && result.data) return result.data;
 
@@ -873,6 +1180,15 @@ Cases list: ${JSON.stringify(
       reply: generateLocalChatReply(message, db),
       isAiAvailable: false,
     };
+  },
+
+  // Gemini Key Management
+  getStoredGeminiKey(): string {
+    return getStoredGeminiKey();
+  },
+
+  setStoredGeminiKey(key: string): void {
+    setStoredGeminiKey(key);
   },
 
   async resetDemoData(): Promise<void> {

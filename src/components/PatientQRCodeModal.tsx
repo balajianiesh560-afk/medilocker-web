@@ -10,10 +10,13 @@ import {
   Fingerprint,
   Calendar,
   HeartPulse,
+  ExternalLink,
+  Smartphone,
+  Globe,
 } from 'lucide-react';
 import { Patient } from '../types';
 import { Modal } from './Modal';
-import { generateQRCodeDataURL, createPatientQRPayload } from '../utils/qrCode';
+import { generateQRCodeDataURL, createPatientQRPayload, getPatientAppUrl } from '../utils/qrCode';
 import { useToast } from './Toast';
 
 interface PatientQRCodeModalProps {
@@ -28,9 +31,11 @@ export const PatientQRCodeModal: React.FC<PatientQRCodeModalProps> = ({
   onClose,
 }) => {
   const { showToast } = useToast();
+  const [qrMode, setQrMode] = useState<'url' | 'json'>('url');
   const [qrDataUrl, setQrDataUrl] = useState<string>('');
   const [isLoading, setIsLoading] = useState(false);
-  const [copied, setCopied] = useState(false);
+  const [copiedLink, setCopiedLink] = useState(false);
+  const [copiedPayload, setCopiedPayload] = useState(false);
 
   useEffect(() => {
     if (!patient || !isOpen) return;
@@ -38,7 +43,7 @@ export const PatientQRCodeModal: React.FC<PatientQRCodeModalProps> = ({
     let mounted = true;
     setIsLoading(true);
 
-    const payload = createPatientQRPayload(patient);
+    const payload = createPatientQRPayload(patient, qrMode);
     generateQRCodeDataURL(payload, 320)
       .then((url) => {
         if (mounted) {
@@ -53,18 +58,26 @@ export const PatientQRCodeModal: React.FC<PatientQRCodeModalProps> = ({
     return () => {
       mounted = false;
     };
-  }, [patient, isOpen]);
+  }, [patient, isOpen, qrMode]);
 
   if (!patient) return null;
 
   const isIdentified = patient.status === 'Identified';
+  const directAppUrl = getPatientAppUrl(patient.id);
+
+  const handleCopyLink = () => {
+    navigator.clipboard.writeText(directAppUrl);
+    setCopiedLink(true);
+    showToast('success', 'App Link Copied', 'Direct patient link copied to clipboard.');
+    setTimeout(() => setCopiedLink(false), 2000);
+  };
 
   const handleCopyPayload = () => {
-    const payload = createPatientQRPayload(patient);
+    const payload = createPatientQRPayload(patient, 'json');
     navigator.clipboard.writeText(payload);
-    setCopied(true);
+    setCopiedPayload(true);
     showToast('info', 'QR Payload Copied', 'JSON patient data copied to clipboard.');
-    setTimeout(() => setCopied(false), 2000);
+    setTimeout(() => setCopiedPayload(false), 2000);
   };
 
   const handleDownloadQR = () => {
@@ -111,7 +124,7 @@ export const PatientQRCodeModal: React.FC<PatientQRCodeModalProps> = ({
             background: #f8fafc;
           }
           .info { flex: 1; margin-right: 20px; }
-          .hospital { font-size: 11px; font-weight: 800; color: #0284c7; letter-spacing: 0.05em; text-transform: uppercase; }
+          .hospital { font-size: 11px; font-weight: 800; color: #0d9488; letter-spacing: 0.05em; text-transform: uppercase; }
           .name { font-size: 20px; font-weight: 800; margin: 4px 0 2px 0; }
           .id-badge { display: inline-block; font-family: monospace; font-size: 12px; font-weight: bold; background: #e2e8f0; padding: 2px 8px; border-radius: 4px; }
           .status { display: inline-block; font-size: 11px; font-weight: bold; padding: 2px 8px; border-radius: 4px; margin-left: 6px; }
@@ -120,7 +133,8 @@ export const PatientQRCodeModal: React.FC<PatientQRCodeModalProps> = ({
           .meta { font-size: 11px; color: #475569; margin-top: 8px; line-height: 1.4; }
           .qr-box { text-align: center; }
           .qr-img { width: 130px; height: 130px; border-radius: 8px; border: 1px solid #cbd5e1; }
-          .qr-label { font-size: 9px; font-family: monospace; color: #64748b; margin-top: 4px; }
+          .qr-label { font-size: 9px; font-family: monospace; color: #0d9488; font-weight: bold; margin-top: 4px; }
+          .url-hint { font-size: 8px; color: #64748b; margin-top: 2px; max-width: 130px; word-break: break-all; }
         </style>
       </head>
       <body>
@@ -141,7 +155,8 @@ export const PatientQRCodeModal: React.FC<PatientQRCodeModalProps> = ({
           </div>
           <div class="qr-box">
             <img class="qr-img" src="${qrDataUrl}" alt="QR" />
-            <div class="qr-label">SCAN TO VERIFY</div>
+            <div class="qr-label">SCAN TO OPEN IN APP</div>
+            <div class="url-hint">${directAppUrl}</div>
           </div>
         </div>
         <script>
@@ -158,7 +173,38 @@ export const PatientQRCodeModal: React.FC<PatientQRCodeModalProps> = ({
 
   return (
     <Modal isOpen={isOpen} onClose={onClose} title="Patient Identification QR & Wristband" size="md">
-      <div className="space-y-5">
+      <div className="space-y-4">
+        {/* QR Mode Toggle */}
+        <div className="flex items-center justify-between p-1.5 bg-slate-100 rounded-xl text-xs">
+          <button
+            id="qr-mode-url-btn"
+            type="button"
+            onClick={() => setQrMode('url')}
+            className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 px-3 rounded-lg font-bold transition-all cursor-pointer ${
+              qrMode === 'url'
+                ? 'bg-white text-teal-700 shadow-xs'
+                : 'text-slate-600 hover:text-slate-900'
+            }`}
+          >
+            <Smartphone className="w-3.5 h-3.5" />
+            <span>Direct App Link (Opens in App)</span>
+          </button>
+
+          <button
+            id="qr-mode-json-btn"
+            type="button"
+            onClick={() => setQrMode('json')}
+            className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 px-3 rounded-lg font-bold transition-all cursor-pointer ${
+              qrMode === 'json'
+                ? 'bg-white text-teal-700 shadow-xs'
+                : 'text-slate-600 hover:text-slate-900'
+            }`}
+          >
+            <Globe className="w-3.5 h-3.5" />
+            <span>Raw Data Payload (JSON)</span>
+          </button>
+        </div>
+
         {/* Wristband Preview Card */}
         <div
           id="printable-wristband-preview"
@@ -174,7 +220,7 @@ export const PatientQRCodeModal: React.FC<PatientQRCodeModalProps> = ({
               <div className="relative p-2.5 bg-white rounded-xl border border-slate-200 shadow-sm flex items-center justify-center">
                 {isLoading ? (
                   <div className="w-36 h-36 flex items-center justify-center text-slate-400">
-                    <QrCode className="w-8 h-8 animate-pulse text-sky-600" />
+                    <QrCode className="w-8 h-8 animate-pulse text-teal-600" />
                   </div>
                 ) : qrDataUrl ? (
                   <img
@@ -188,15 +234,15 @@ export const PatientQRCodeModal: React.FC<PatientQRCodeModalProps> = ({
                   </div>
                 )}
               </div>
-              <span className="font-mono text-[10px] text-slate-500 mt-1 font-semibold">
-                SCAN TO VERIFY
+              <span className="font-mono text-[10px] text-teal-700 mt-1.5 font-bold flex items-center gap-1">
+                {qrMode === 'url' ? 'SCAN TO OPEN IN APP' : 'RAW DATA PAYLOAD'}
               </span>
             </div>
 
             {/* Patient Clinical Info on Wristband */}
             <div className="flex-1 min-w-0 space-y-2 text-center sm:text-left">
               <div>
-                <span className="text-[10px] font-bold text-sky-700 tracking-wider uppercase">
+                <span className="text-[10px] font-bold text-teal-700 tracking-wider uppercase">
                   MediLocker • Bedside Tag
                 </span>
                 <h4 className="text-lg font-bold text-slate-900 truncate">{patient.fullName}</h4>
@@ -227,6 +273,21 @@ export const PatientQRCodeModal: React.FC<PatientQRCodeModalProps> = ({
                   <Fingerprint className="w-3.5 h-3.5 text-teal-600 shrink-0" />
                   <span className="font-mono text-[11px] truncate">{patient.fingerprintRefId}</span>
                 </div>
+                {/* Clinical records availability tags */}
+                <div className="flex flex-wrap items-center justify-center sm:justify-start gap-1 pt-0.5 text-[9px] font-semibold text-slate-500">
+                  <span className="bg-purple-50 text-purple-700 px-1.5 py-0.5 rounded border border-purple-200">
+                    Scans: {patient.scanReports?.length || 0}
+                  </span>
+                  <span className="bg-teal-50 text-teal-700 px-1.5 py-0.5 rounded border border-teal-200">
+                    Rx: {patient.prescriptions?.length || 0}
+                  </span>
+                  <span className="bg-blue-50 text-blue-700 px-1.5 py-0.5 rounded border border-blue-200">
+                    Labs: {patient.labReports?.length || 0}
+                  </span>
+                  <span className="bg-emerald-50 text-emerald-700 px-1.5 py-0.5 rounded border border-emerald-200">
+                    Discharge: {patient.dischargeSummaries?.length || 0}
+                  </span>
+                </div>
                 {patient.emergencyNotes && (
                   <p className="text-[11px] text-slate-500 line-clamp-2 italic">
                     "{patient.emergencyNotes}"
@@ -237,15 +298,31 @@ export const PatientQRCodeModal: React.FC<PatientQRCodeModalProps> = ({
           </div>
         </div>
 
-        {/* Technical Specification Notice */}
-        <div className="bg-sky-50/60 border border-sky-200/70 rounded-xl p-3 text-xs text-sky-900 flex items-start gap-2.5">
-          <QrCode className="w-4 h-4 text-sky-600 shrink-0 mt-0.5" />
-          <div>
-            <p className="font-semibold">Compatible with Hospital Optical Scanners & Mobile Cameras</p>
-            <p className="text-sky-700 text-[11px] mt-0.5">
-              Contains encoded patient identification payload for instant lookup at triage stations, operating rooms, and ambulance handoffs.
-            </p>
+        {/* Direct App Link Display Box */}
+        <div className="bg-teal-50/80 border border-teal-200/80 rounded-xl p-3 text-xs text-teal-950 space-y-2">
+          <div className="flex items-center justify-between">
+            <span className="font-bold flex items-center gap-1.5 text-teal-900">
+              <Smartphone className="w-4 h-4 text-teal-600" />
+              Direct In-App Deep Link:
+            </span>
+            <button
+              id="copy-direct-app-url-btn"
+              type="button"
+              onClick={handleCopyLink}
+              className="flex items-center gap-1 text-[11px] font-bold text-teal-700 hover:text-teal-900 bg-white px-2 py-0.5 rounded-md border border-teal-200 cursor-pointer shadow-2xs"
+            >
+              {copiedLink ? <Check className="w-3 h-3 text-emerald-600" /> : <Copy className="w-3 h-3" />}
+              <span>{copiedLink ? 'Copied Link' : 'Copy Link'}</span>
+            </button>
           </div>
+          <p className="font-mono text-[11px] text-teal-800 bg-white/80 p-2 rounded-lg border border-teal-100 break-all select-all">
+            {directAppUrl}
+          </p>
+          <p className="text-[11px] text-teal-700">
+            {qrMode === 'url'
+              ? '✨ Scanning this QR code with any smartphone camera automatically opens the MediLocker app and navigates straight to this patient’s record.'
+              : 'Encodes raw JSON clinical data string for offline hospital legacy readers.'}
+          </p>
         </div>
 
         {/* Action Buttons */}
@@ -276,7 +353,7 @@ export const PatientQRCodeModal: React.FC<PatientQRCodeModalProps> = ({
             onClick={handleCopyPayload}
             className="flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl border border-slate-200 hover:bg-slate-100 text-slate-700 text-xs font-semibold transition-all cursor-pointer"
           >
-            {copied ? (
+            {copiedPayload ? (
               <>
                 <Check className="w-4 h-4 text-emerald-600" />
                 <span className="text-emerald-700">Copied!</span>
@@ -284,7 +361,7 @@ export const PatientQRCodeModal: React.FC<PatientQRCodeModalProps> = ({
             ) : (
               <>
                 <Copy className="w-4 h-4 text-slate-500" />
-                <span>Copy Data</span>
+                <span>Copy JSON</span>
               </>
             )}
           </button>

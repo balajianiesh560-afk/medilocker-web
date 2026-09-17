@@ -13,12 +13,15 @@ import {
   CheckCircle2,
   X,
   HelpCircle,
+  QrCode,
+  Zap,
 } from 'lucide-react';
 import { api } from '../services/api';
 import { User } from '../types';
 
 interface LoginViewProps {
   onLoginSuccess: (user: User) => void;
+  pendingQRTarget?: string | null;
 }
 
 const PRESET_HOSPITALS = [
@@ -28,13 +31,30 @@ const PRESET_HOSPITALS = [
   'Harborview Regional Hospital',
 ];
 
-export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
+export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess, pendingQRTarget }) => {
   const [email, setEmail] = useState('admin@hospital.com');
   const [password, setPassword] = useState('admin123');
   const [hospitalName, setHospitalName] = useState('St. Jude Memorial Trauma Center');
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+
+  const handleEmergencyOneClick = async () => {
+    setError(null);
+    setIsLoading(true);
+    try {
+      const res = await api.login('admin@hospital.com', 'admin123', 'St. Jude Memorial Trauma Center');
+      if (res.success && res.user) {
+        onLoginSuccess(res.user);
+      } else {
+        setError(res.message || 'Auto-login failed.');
+      }
+    } catch (err: any) {
+      setError(err?.message || 'Login connection failed.');
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   // Forgot Password Modal State
   const [showForgotModal, setShowForgotModal] = useState(false);
@@ -147,6 +167,35 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
               Secure clinical access for emergency triage, biometric cross-referencing, and case management.
             </p>
           </div>
+
+          {/* Scanned QR Deep-Link Banner */}
+          {pendingQRTarget && (
+            <div
+              id="login-qr-detected-banner"
+              className="p-4 rounded-xl bg-teal-950/80 border border-teal-500/50 text-teal-200 text-xs space-y-2.5 animate-in fade-in"
+            >
+              <div className="flex items-center gap-2 font-bold text-white">
+                <QrCode className="w-4 h-4 text-teal-400 shrink-0" />
+                <span>QR Link Scanned</span>
+                <span className="ml-auto font-mono text-[11px] bg-teal-900/90 text-teal-200 px-2 py-0.5 rounded border border-teal-500/40">
+                  {pendingQRTarget}
+                </span>
+              </div>
+              <p className="text-teal-300/90 text-[11px] leading-relaxed">
+                A patient QR link was scanned. Authenticate as authorized hospital staff to immediately open this clinical profile in the app.
+              </p>
+              <button
+                id="emergency-quick-signin-btn"
+                type="button"
+                onClick={handleEmergencyOneClick}
+                disabled={isLoading}
+                className="w-full flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl bg-teal-600 hover:bg-teal-500 active:scale-[0.99] text-white font-bold text-xs transition-all cursor-pointer shadow-md shadow-teal-600/30"
+              >
+                <Zap className="w-3.5 h-3.5" />
+                <span>Instant Physician Access & Open Record</span>
+              </button>
+            </div>
+          )}
 
           {error && (
             <div

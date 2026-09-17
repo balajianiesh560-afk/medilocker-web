@@ -9,6 +9,7 @@ import {
   TreatmentTimelineRecord,
   TreatmentNotification,
 } from '../types';
+import { enrichPatientWithClinicalData } from './clinicalRecordsData';
 
 export const AVAILABLE_DOCTORS: User[] = [
   {
@@ -62,7 +63,7 @@ export function generateAvatar(initials: string, bgColor: string = '#0284c7'): s
   return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
 }
 
-export const INITIAL_PATIENTS: Patient[] = [
+const RAW_INITIAL_PATIENTS: Patient[] = [
   {
     id: 'PID-1042',
     fullName: 'Liam Alexander Walker',
@@ -1326,6 +1327,8 @@ export const INITIAL_PATIENTS: Patient[] = [
     updatedAt: '2026-09-08T17:00:00Z',
   },
 ];
+
+export const INITIAL_PATIENTS: Patient[] = RAW_INITIAL_PATIENTS.map(enrichPatientWithClinicalData);
 
 export const INITIAL_EMERGENCY_CASES: EmergencyCase[] = [
   {

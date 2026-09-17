@@ -123,6 +123,108 @@ export interface AuditLogEntry {
   status: 'SUCCESS' | 'FLAGGED' | 'DENIED';
 }
 
+export interface ScanReportRecord {
+  id: string;
+  patientId: string;
+  title: string;
+  modality: 'CT Scan' | 'MRI' | 'X-Ray' | 'Ultrasound' | 'PET-CT' | 'Doppler';
+  bodyRegion: string;
+  date: string;
+  hospitalName: string;
+  radiologistName: string;
+  radiologistId?: string;
+  clinicalIndication: string;
+  technique?: string;
+  findings: string;
+  impression: string;
+  status: 'Normal' | 'Abnormal' | 'Critical Finding' | 'Pending Review';
+  imageUrl?: string;
+  fileSize?: string;
+  createdAt: string;
+}
+
+export interface PrescriptionRecord {
+  id: string;
+  patientId: string;
+  medicationName: string;
+  genericName?: string;
+  dosage: string;
+  route: 'Oral' | 'IV' | 'IM' | 'Inhalation' | 'Sublingual' | 'Topical' | 'Subcutaneous' | string;
+  frequency: string;
+  timing: 'Before Food' | 'After Food' | 'With Food' | 'At Bedtime' | 'STAT' | string;
+  duration: string;
+  prescribedDate: string;
+  endDate?: string;
+  prescribingDoctor: string;
+  doctorSpecialty?: string;
+  hospitalName: string;
+  status: 'Active' | 'Completed' | 'Discontinued';
+  dispensedStatus: 'Dispensed' | 'Pending Pharmacy' | 'Refill Authorized' | 'Partial';
+  instructions: string;
+  refillsRemaining?: number;
+  createdAt: string;
+}
+
+export interface LabReportParameter {
+  name: string;
+  value: string | number;
+  unit: string;
+  referenceRange: string;
+  status?: 'Normal' | 'High' | 'Low' | 'Critical';
+  flag?: 'Normal' | 'High' | 'Low' | 'Critical';
+}
+
+export type LabParameterResult = LabReportParameter;
+
+export interface LabReportRecord {
+  id: string;
+  patientId: string;
+  testName: string;
+  category: 'Hematology' | 'Biochemistry' | 'Cardiac Markers' | 'Electrolytes' | 'Endocrinology' | 'Microbiology' | 'Urinalysis' | 'Pathology' | 'Immunology' | string;
+  sampleType: string;
+  collectionDate: string;
+  reportDate: string;
+  laboratoryName: string;
+  pathologistName: string;
+  status: 'Completed' | 'Preliminary' | 'Critical Alert';
+  overallSummary?: string;
+  parameters: LabReportParameter[];
+  fileUrl?: string;
+  createdAt: string;
+}
+
+export interface DischargeMedicationItem {
+  name: string;
+  dosage: string;
+  frequency: string;
+  duration: string;
+  instructions?: string;
+}
+
+export interface DischargeSummaryRecord {
+  id: string;
+  patientId: string;
+  admissionDate: string;
+  dischargeDate: string;
+  lengthOfStay: string;
+  department: string;
+  attendingPhysician: string;
+  hospitalName: string;
+  primaryDiagnosis: string;
+  icdCode?: string;
+  secondaryDiagnoses?: string[];
+  clinicalSummary: string;
+  proceduresPerformed?: string[];
+  conditionAtDischarge: 'Stable' | 'Improved' | 'Cured' | 'Transferred' | 'Guarded';
+  dischargeMedications: DischargeMedicationItem[];
+  dietaryAdvice?: string;
+  activityRestrictions?: string;
+  followUpDate: string;
+  followUpInstructions: string;
+  emergencyWarningSigns: string[];
+  createdAt: string;
+}
+
 export interface Patient {
   id: string; // e.g. PID-2041
   fullName: string;
@@ -143,6 +245,10 @@ export interface Patient {
   medications?: MedicationRecord[];
   medicalReports?: MedicalReportRecord[];
   treatmentTimeline?: TreatmentTimelineRecord[];
+  scanReports?: ScanReportRecord[];
+  prescriptions?: PrescriptionRecord[];
+  labReports?: LabReportRecord[];
+  dischargeSummaries?: DischargeSummaryRecord[];
   caseHistory: CaseHistoryEntry[];
   createdAt: string;
   updatedAt: string;
@@ -190,6 +296,8 @@ export interface AISummaryResult {
   };
   generatedAt: string;
   isAiAvailable: boolean;
+  isOnline?: boolean;
+  modelName?: string;
   disclaimer: string;
 }
 

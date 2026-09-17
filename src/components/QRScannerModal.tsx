@@ -13,6 +13,9 @@ import {
   UserX,
   Fingerprint,
   FileSearch,
+  Loader2,
+  FlipHorizontal,
+  CameraOff,
 } from 'lucide-react';
 import { Modal } from './Modal';
 import { Patient, EmergencyCase } from '../types';
@@ -47,28 +50,59 @@ export const QRScannerModal: React.FC<QRScannerModalProps> = ({
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const [cameraActive, setCameraActive] = useState(false);
+  const [isCameraStarting, setIsCameraStarting] = useState(false);
   const [cameraError, setCameraError] = useState<string | null>(null);
+  const [facingMode, setFacingMode] = useState<'environment' | 'user'>('environment');
   const animationFrameId = useRef<number | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
+  const lastScanTime = useRef<number>(0);
 
   // Match state
   const [scannedRaw, setScannedRaw] = useState<string | null>(null);
   const [matchedPatient, setMatchedPatient] = useState<Patient | null>(null);
   const [matchedEmergencyCase, setMatchedEmergencyCase] = useState<EmergencyCase | null>(null);
   const [unmatchedId, setUnmatchedId] = useState<string | null>(null);
+  const [autoNavigate, setAutoNavigate] = useState<boolean>(true);
+  const [isNavigating, setIsNavigating] = useState<boolean>(false);
+  const navTimerRef = useRef<any>(null);
 
   // Manual input state
   const [manualInput, setManualInput] = useState('');
 
+  const cancelAutoNav = () => {
+    if (navTimerRef.current) {
+      clearTimeout(navTimerRef.current);
+      navTimerRef.current = null;
+    }
+    setIsNavigating(false);
+  };
+
+  const handleResetScan = () => {
+    cancelAutoNav();
+    setScannedRaw(null);
+    setMatchedPatient(null);
+    setMatchedEmergencyCase(null);
+    setUnmatchedId(null);
+    setManualInput('');
+    if (activeTab === 'camera') {
+      startCamera(facingMode);
+    }
+  };
+
   // Start / Stop camera when tab changes or modal opens/closes
   useEffect(() => {
+    let timer: any;
     if (isOpen && activeTab === 'camera' && !scannedRaw) {
-      startCamera();
+      // Small timeout ensures video element is mounted in the DOM
+      timer = setTimeout(() => {
+        startCamera(facingMode);
+      }, 50);
     } else {
       stopCamera();
     }
 
     return () => {
+      clearTimeout(timer);
       stopCamera();
     };
   }, [isOpen, activeTab, scannedRaw]);
@@ -82,56 +116,131 @@ export const QRScannerModal: React.FC<QRScannerModalProps> = ({
       streamRef.current.getTracks().forEach((track) => track.stop());
       streamRef.current = null;
     }
+    if (videoRef.current) {
+      videoRef.current.srcObject = null;
+    }
     setCameraActive(false);
+    setIsCameraStarting(false);
   };
 
-  const startCamera = async () => {
+  const startCamera = async (targetFacing?: 'environment' | 'user') => {
     stopCamera();
+    const desiredFacing = targetFacing || facingMode;
     setCameraError(null);
+    setIsCameraStarting(true);
+
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      setCameraError(
+        'Camera API is not supported in this browser environment. Please use Upload QR or Simulator.'
+      );
+      setIsCameraStarting(false);
+      return;
+    }
 
     try {
-      const constraints: MediaStreamConstraints = {
-        video: { facingMode: 'environment', width: { ideal: 640 }, height: { ideal: 480 } },
-      };
-      const stream = await navigator.mediaDevices.getUserMedia(constraints);
+      let stream: MediaStream;
+      try {
+        // Try requesting ideal facingMode first
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: {
+            facingMode: { ideal: desiredFacing },
+            width: { ideal: 1280 },
+            height: { ideal: 720 },
+          },
+          audio: false,
+        });
+      } catch (errFirst) {
+        console.warn('Ideal facing camera constraints failed, attempting fallback to any video source:', errFirst);
+        // Fallback: try basic video
+        stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+      }
+
       streamRef.current = stream;
 
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-        videoRef.current.setAttribute('playsinline', 'true');
-        await videoRef.current.play();
+      const video = videoRef.current;
+      if (video) {
+        video.srcObject = stream;
+        video.muted = true;
+        video.playsInline = true;
+        video.setAttribute('playsinline', 'true');
+
+        // Wait for video metadata/stream to be ready to play
+        await new Promise<void>((resolve) => {
+          if (video.readyState >= HTMLMediaElement.HAVE_METADATA) {
+            resolve();
+          } else {
+            video.onloadedmetadata = () => resolve();
+            setTimeout(resolve, 800);
+          }
+        });
+
+        try {
+          await video.play();
+        } catch (playErr) {
+          console.warn('Video auto-play warning:', playErr);
+        }
+
         setCameraActive(true);
+        setIsCameraStarting(false);
         scanLoop();
+      } else {
+        setIsCameraStarting(false);
+        setCameraError('Video display element not initialized. Please click Retry.');
       }
     } catch (err: any) {
       console.warn('Camera access error:', err);
-      setCameraError(
-        err.name === 'NotAllowedError'
-          ? 'Camera permission denied. Please allow camera access or use File Upload / Simulator.'
-          : 'Unable to access camera device. You can test with the quick simulator or image upload.'
-      );
+      setIsCameraStarting(false);
       setCameraActive(false);
+
+      if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
+        setCameraError(
+          'Camera permission was denied. Please allow camera permissions in browser settings or use Upload / Simulator.'
+        );
+      } else if (err.name === 'NotFoundError' || err.name === 'DevicesNotFoundError') {
+        setCameraError('No camera found on this device. You can test with file upload or the simulator.');
+      } else if (err.name === 'NotReadableError' || err.name === 'TrackStartError') {
+        setCameraError('Camera is in use by another app. Please close other camera apps and retry.');
+      } else {
+        setCameraError(err.message || 'Unable to access camera device. Please try Upload or Simulator.');
+      }
     }
   };
 
+  const handleFlipCamera = () => {
+    const nextFacing = facingMode === 'environment' ? 'user' : 'environment';
+    setFacingMode(nextFacing);
+    startCamera(nextFacing);
+  };
+
   const scanLoop = () => {
-    if (!videoRef.current || !canvasRef.current) return;
+    if (!streamRef.current) return;
 
-    const video = videoRef.current;
-    const canvas = canvasRef.current;
+    const now = performance.now();
+    // Scan every 100ms for optimal balance of scanning speed and CPU efficiency
+    if (now - lastScanTime.current > 100) {
+      lastScanTime.current = now;
 
-    if (video.readyState === video.HAVE_ENOUGH_DATA) {
-      canvas.width = video.videoWidth;
-      canvas.height = video.videoHeight;
-      const ctx = canvas.getContext('2d', { willReadFrequently: true });
+      const video = videoRef.current;
+      const canvas = canvasRef.current;
 
-      if (ctx) {
-        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-        const codeText = decodeQRFromCanvas(canvas);
+      if (
+        video &&
+        canvas &&
+        video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA &&
+        video.videoWidth > 0
+      ) {
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+        const ctx = canvas.getContext('2d', { willReadFrequently: true });
 
-        if (codeText) {
-          handleDetectedCode(codeText);
-          return;
+        if (ctx) {
+          ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+          const codeText = decodeQRFromCanvas(canvas);
+
+          if (codeText) {
+            handleDetectedCode(codeText);
+            return;
+          }
         }
       }
     }
@@ -154,7 +263,15 @@ export const QRScannerModal: React.FC<QRScannerModalProps> = ({
         setMatchedPatient(found);
         setMatchedEmergencyCase(null);
         setUnmatchedId(null);
-        showToast('success', 'Patient Identified', `Matched record for ${found.fullName} (${found.id}).`);
+        showToast('success', 'Patient Identified', `Matched record for ${found.fullName} (${found.id}). Navigating into app...`);
+
+        if (autoNavigate) {
+          setIsNavigating(true);
+          navTimerRef.current = setTimeout(() => {
+            onSelectPatient(found);
+            onClose();
+          }, 850);
+        }
         return;
       }
     }
@@ -170,7 +287,15 @@ export const QRScannerModal: React.FC<QRScannerModalProps> = ({
         setMatchedEmergencyCase(foundCase);
         setMatchedPatient(null);
         setUnmatchedId(null);
-        showToast('info', 'Emergency Case Identified', `Matched emergency tag ${foundCase.temporaryId}.`);
+        showToast('info', 'Emergency Case Identified', `Matched emergency tag ${foundCase.temporaryId}. Navigating into app...`);
+
+        if (autoNavigate && onSelectEmergencyCase) {
+          setIsNavigating(true);
+          navTimerRef.current = setTimeout(() => {
+            onSelectEmergencyCase(foundCase);
+            onClose();
+          }, 850);
+        }
         return;
       }
     }
@@ -183,7 +308,15 @@ export const QRScannerModal: React.FC<QRScannerModalProps> = ({
       setMatchedPatient(foundByRef);
       setMatchedEmergencyCase(null);
       setUnmatchedId(null);
-      showToast('success', 'Patient Identified', `Matched biometric reference for ${foundByRef.fullName}.`);
+      showToast('success', 'Patient Identified', `Matched biometric reference for ${foundByRef.fullName}. Navigating into app...`);
+
+      if (autoNavigate) {
+        setIsNavigating(true);
+        navTimerRef.current = setTimeout(() => {
+          onSelectPatient(foundByRef);
+          onClose();
+        }, 850);
+      }
       return;
     }
 
@@ -219,69 +352,109 @@ export const QRScannerModal: React.FC<QRScannerModalProps> = ({
     reader.readAsDataURL(file);
   };
 
-  const handleResetScan = () => {
-    setScannedRaw(null);
-    setMatchedPatient(null);
-    setMatchedEmergencyCase(null);
-    setUnmatchedId(null);
-    if (activeTab === 'camera') {
-      startCamera();
-    }
-  };
-
   return (
     <Modal isOpen={isOpen} onClose={onClose} title="Scan QR Code to Identify Patient" size="lg">
       <div className="space-y-4">
-        {/* Subheader tabs */}
+        {/* Subheader tabs & Auto-open option */}
         {!scannedRaw && (
-          <div className="flex items-center gap-1.5 p-1 bg-slate-100 rounded-xl">
-            <button
-              id="qr-tab-camera"
-              type="button"
-              onClick={() => setActiveTab('camera')}
-              className={`flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg text-xs font-semibold transition-all ${
-                activeTab === 'camera'
-                  ? 'bg-white text-slate-900 shadow-xs'
-                  : 'text-slate-600 hover:text-slate-900'
-              }`}
-            >
-              <Camera className="w-3.5 h-3.5 text-sky-600" />
-              <span>Live Camera</span>
-            </button>
+          <div className="space-y-2.5">
+            <div className="flex items-center justify-between px-1">
+              <label className="flex items-center gap-2 text-xs text-slate-700 cursor-pointer select-none">
+                <input
+                  id="qr-auto-navigate-toggle"
+                  type="checkbox"
+                  checked={autoNavigate}
+                  onChange={(e) => setAutoNavigate(e.target.checked)}
+                  className="rounded text-teal-600 focus:ring-teal-500 w-4 h-4 cursor-pointer accent-teal-600"
+                />
+                <span className="font-semibold text-slate-700">Auto-open clinical profile upon scan</span>
+              </label>
+              <span className="text-[11px] text-teal-700 font-medium">Navigates directly into app</span>
+            </div>
 
-            <button
-              id="qr-tab-upload"
-              type="button"
-              onClick={() => setActiveTab('upload')}
-              className={`flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg text-xs font-semibold transition-all ${
-                activeTab === 'upload'
-                  ? 'bg-white text-slate-900 shadow-xs'
-                  : 'text-slate-600 hover:text-slate-900'
-              }`}
-            >
-              <Upload className="w-3.5 h-3.5 text-teal-600" />
-              <span>Upload QR File</span>
-            </button>
+            <div className="flex items-center gap-1.5 p-1 bg-slate-100 rounded-xl">
+              <button
+                id="qr-tab-camera"
+                type="button"
+                onClick={() => setActiveTab('camera')}
+                className={`flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+                  activeTab === 'camera'
+                    ? 'bg-white text-slate-900 shadow-xs'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                <Camera className="w-3.5 h-3.5 text-teal-600" />
+                <span>Live Camera</span>
+              </button>
 
-            <button
-              id="qr-tab-simulate"
-              type="button"
-              onClick={() => setActiveTab('simulate')}
-              className={`flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg text-xs font-semibold transition-all ${
-                activeTab === 'simulate'
-                  ? 'bg-white text-slate-900 shadow-xs'
-                  : 'text-slate-600 hover:text-slate-900'
-              }`}
-            >
-              <Sparkles className="w-3.5 h-3.5 text-amber-600" />
-              <span>Barcode / Sim</span>
-            </button>
+              <button
+                id="qr-tab-upload"
+                type="button"
+                onClick={() => setActiveTab('upload')}
+                className={`flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+                  activeTab === 'upload'
+                    ? 'bg-white text-slate-900 shadow-xs'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                <Upload className="w-3.5 h-3.5 text-teal-600" />
+                <span>Upload QR File</span>
+              </button>
+
+              <button
+                id="qr-tab-simulate"
+                type="button"
+                onClick={() => setActiveTab('simulate')}
+                className={`flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+                  activeTab === 'simulate'
+                    ? 'bg-white text-slate-900 shadow-xs'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                <Sparkles className="w-3.5 h-3.5 text-amber-600" />
+                <span>Barcode / Sim</span>
+              </button>
+            </div>
           </div>
         )}
 
         {/* ================= RESULT VIEW ================= */}
         {scannedRaw ? (
           <div className="space-y-4 animate-in fade-in zoom-in-95 duration-200">
+            {/* Direct Auto-Navigate Progress Banner */}
+            {isNavigating && (
+              <div
+                id="qr-autonav-banner"
+                className="bg-teal-600 text-white p-3.5 rounded-2xl shadow-lg shadow-teal-600/20 flex items-center justify-between gap-3 animate-in fade-in"
+              >
+                <div className="flex items-center gap-2.5 text-xs font-bold">
+                  <div className="w-2.5 h-2.5 rounded-full bg-white animate-ping shrink-0" />
+                  <span>Verified! Navigating directly into patient profile...</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      cancelAutoNav();
+                      if (matchedPatient) onSelectPatient(matchedPatient);
+                      else if (matchedEmergencyCase && onSelectEmergencyCase)
+                        onSelectEmergencyCase(matchedEmergencyCase);
+                      onClose();
+                    }}
+                    className="px-3 py-1 rounded-lg bg-white text-teal-800 font-extrabold text-xs hover:bg-teal-50 cursor-pointer shadow-xs"
+                  >
+                    Open Now
+                  </button>
+                  <button
+                    type="button"
+                    onClick={cancelAutoNav}
+                    className="px-2.5 py-1 rounded-lg text-teal-100 hover:text-white hover:bg-teal-700 text-xs cursor-pointer"
+                  >
+                    Stay
+                  </button>
+                </div>
+              </div>
+            )}
             {/* MATCHED PATIENT */}
             {matchedPatient && (
               <div
@@ -480,52 +653,105 @@ export const QRScannerModal: React.FC<QRScannerModalProps> = ({
             {/* CAMERA TAB */}
             {activeTab === 'camera' && (
               <div className="relative bg-slate-950 rounded-2xl overflow-hidden aspect-video flex items-center justify-center border border-slate-800 shadow-inner">
-                {cameraActive ? (
-                  <>
-                    <video
-                      ref={videoRef}
-                      className="w-full h-full object-cover"
-                      muted
-                      autoPlay
-                      playsInline
-                    />
-                    <canvas ref={canvasRef} className="hidden" />
+                {/* Video element is permanently mounted to allow stream attachment */}
+                <video
+                  ref={videoRef}
+                  className={`w-full h-full object-cover transition-opacity duration-300 ${
+                    cameraActive ? 'opacity-100' : 'opacity-0 absolute pointer-events-none'
+                  }`}
+                  muted
+                  autoPlay
+                  playsInline
+                />
+                <canvas ref={canvasRef} className="hidden" />
 
+                {/* HUD Overlay when Camera is Active */}
+                {cameraActive && (
+                  <>
                     {/* Reticle / Aiming Crosshairs */}
                     <div className="absolute inset-0 pointer-events-none flex items-center justify-center">
-                      <div className="relative w-48 h-48 border-2 border-sky-400/80 rounded-2xl shadow-lg">
+                      <div className="relative w-48 h-48 sm:w-56 sm:h-56 border-2 border-teal-400/80 rounded-2xl shadow-lg">
                         {/* Corner markers */}
-                        <div className="absolute -top-1 -left-1 w-5 h-5 border-t-4 border-l-4 border-teal-400 rounded-tl-md" />
-                        <div className="absolute -top-1 -right-1 w-5 h-5 border-t-4 border-r-4 border-teal-400 rounded-tr-md" />
-                        <div className="absolute -bottom-1 -left-1 w-5 h-5 border-b-4 border-l-4 border-teal-400 rounded-bl-md" />
-                        <div className="absolute -bottom-1 -right-1 w-5 h-5 border-b-4 border-r-4 border-teal-400 rounded-br-md" />
+                        <div className="absolute -top-1 -left-1 w-6 h-6 border-t-4 border-l-4 border-teal-400 rounded-tl-lg" />
+                        <div className="absolute -top-1 -right-1 w-6 h-6 border-t-4 border-r-4 border-teal-400 rounded-tr-lg" />
+                        <div className="absolute -bottom-1 -left-1 w-6 h-6 border-b-4 border-l-4 border-teal-400 rounded-bl-lg" />
+                        <div className="absolute -bottom-1 -right-1 w-6 h-6 border-b-4 border-r-4 border-teal-400 rounded-br-lg" />
 
                         {/* Scanning beam animation */}
-                        <div className="absolute inset-x-0 top-0 h-0.5 bg-gradient-to-r from-transparent via-sky-400 to-transparent animate-pulse shadow-sm shadow-sky-400" />
+                        <div className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-transparent via-teal-400 to-transparent animate-pulse shadow-md shadow-teal-400" />
                       </div>
                     </div>
 
-                    <div className="absolute bottom-3 inset-x-0 flex justify-center pointer-events-none">
-                      <span className="px-3 py-1 rounded-full bg-slate-900/80 backdrop-blur-md text-[11px] font-medium text-slate-200 border border-slate-700">
-                        Align patient wristband QR inside frame
+                    {/* Top action controls: Flip Camera & Status */}
+                    <div className="absolute top-3 right-3 flex items-center gap-2 z-20">
+                      <button
+                        id="qr-flip-camera-btn"
+                        type="button"
+                        onClick={handleFlipCamera}
+                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-900/80 hover:bg-slate-800 text-teal-300 border border-teal-500/40 text-xs font-semibold backdrop-blur-md transition-all cursor-pointer shadow-sm"
+                        title="Switch Camera (Front / Rear)"
+                      >
+                        <FlipHorizontal className="w-3.5 h-3.5" />
+                        <span className="hidden sm:inline">Flip Camera</span>
+                      </button>
+                    </div>
+
+                    <div className="absolute bottom-3 inset-x-0 flex justify-center pointer-events-none z-20">
+                      <span className="px-3.5 py-1.5 rounded-full bg-slate-900/85 backdrop-blur-md text-[11px] font-semibold text-teal-200 border border-teal-500/40 shadow-md">
+                        Align patient wristband or tag inside frame
                       </span>
                     </div>
                   </>
-                ) : (
-                  <div className="p-6 text-center text-slate-400 space-y-3 max-w-sm">
-                    <Camera className="w-10 h-10 mx-auto text-slate-600" />
+                )}
+
+                {/* Loading / Starting State */}
+                {isCameraStarting && (
+                  <div className="absolute inset-0 flex flex-col items-center justify-center bg-slate-950/90 text-slate-300 p-6 space-y-3 z-10">
+                    <Loader2 className="w-8 h-8 text-teal-400 animate-spin" />
+                    <div className="text-center">
+                      <p className="text-xs font-bold text-white">Opening Camera Feed...</p>
+                      <p className="text-[11px] text-slate-400 mt-1">Connecting to camera sensor</p>
+                    </div>
+                  </div>
+                )}
+
+                {/* Inactive or Error State */}
+                {!cameraActive && !isCameraStarting && (
+                  <div className="p-6 text-center text-slate-400 space-y-3.5 max-w-sm z-10">
+                    <div className="w-12 h-12 rounded-2xl bg-slate-900 border border-slate-800 flex items-center justify-center mx-auto text-slate-500 shadow-inner">
+                      {cameraError ? (
+                        <CameraOff className="w-6 h-6 text-rose-400" />
+                      ) : (
+                        <Camera className="w-6 h-6 text-teal-400" />
+                      )}
+                    </div>
+
                     {cameraError ? (
-                      <p className="text-xs text-rose-400">{cameraError}</p>
+                      <p className="text-xs text-rose-300 bg-rose-950/40 border border-rose-800/40 p-3 rounded-xl leading-relaxed">
+                        {cameraError}
+                      </p>
                     ) : (
-                      <p className="text-xs">Initializing camera feed...</p>
+                      <p className="text-xs text-slate-300">Camera preview is ready to start.</p>
                     )}
-                    <button
-                      type="button"
-                      onClick={startCamera}
-                      className="px-4 py-2 rounded-xl bg-sky-600 hover:bg-sky-500 text-white text-xs font-bold shadow-sm"
-                    >
-                      Start Camera
-                    </button>
+
+                    <div className="flex items-center justify-center gap-2 pt-1">
+                      <button
+                        id="qr-start-camera-btn"
+                        type="button"
+                        onClick={() => startCamera(facingMode)}
+                        className="px-4 py-2 rounded-xl bg-teal-600 hover:bg-teal-500 text-white text-xs font-bold shadow-md shadow-teal-600/30 transition-colors cursor-pointer"
+                      >
+                        {cameraError ? 'Retry Camera' : 'Start Camera'}
+                      </button>
+                      <button
+                        id="qr-switch-to-upload-btn"
+                        type="button"
+                        onClick={() => setActiveTab('upload')}
+                        className="px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold border border-slate-700 transition-colors cursor-pointer"
+                      >
+                        Upload Photo
+                      </button>
+                    </div>
                   </div>
                 )}
               </div>

@@ -68,6 +68,18 @@ function MediLockerApp() {
   const [selectedEmergencyCase, setSelectedEmergencyCase] = useState<EmergencyCase | null>(null);
   const [notifyInitialPatientId, setNotifyInitialPatientId] = useState<string | null>(null);
 
+  // Deep-link from Scanned QR Code URL (e.g. ?patientId=PID-1042)
+  const [pendingQRTarget, setPendingQRTarget] = useState<string | null>(() => {
+    if (typeof window === 'undefined') return null;
+    const searchParams = new URLSearchParams(window.location.search);
+    return (
+      searchParams.get('patientId') ||
+      searchParams.get('pid') ||
+      searchParams.get('caseId') ||
+      searchParams.get('cid')
+    );
+  });
+
   // System States
   const [geminiConfigured, setGeminiConfigured] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
@@ -104,10 +116,75 @@ function MediLockerApp() {
     loadData();
   }, []);
 
+  // Automatically navigate into the patient profile when a QR code was scanned
+  useEffect(() => {
+    if (patients.length === 0 && emergencyCases.length === 0) return;
+
+    const searchParams =
+      typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : null;
+    const targetPatientId =
+      searchParams?.get('patientId') || searchParams?.get('pid') || pendingQRTarget;
+    const targetCaseId = searchParams?.get('caseId') || searchParams?.get('cid');
+
+    if (targetPatientId && patients.length > 0) {
+      const found = patients.find(
+        (p) => p.id.toLowerCase() === targetPatientId.toLowerCase()
+      );
+      if (found) {
+        setSelectedPatient(found);
+        setActiveView('patient-profile');
+        setPendingQRTarget(null);
+        showToast(
+          'success',
+          'Patient Record Loaded',
+          `Scanned QR Code navigated directly to ${found.fullName} (${found.id}).`
+        );
+        try {
+          window.history.replaceState({}, '', window.location.pathname);
+        } catch {}
+      }
+    } else if (targetCaseId && emergencyCases.length > 0) {
+      const foundCase = emergencyCases.find(
+        (c) =>
+          c.temporaryId.toLowerCase() === targetCaseId.toLowerCase() ||
+          c.id.toLowerCase() === targetCaseId.toLowerCase()
+      );
+      if (foundCase) {
+        setSelectedEmergencyCase(foundCase);
+        setActiveView('emergency-cases');
+        setPendingQRTarget(null);
+        showToast(
+          'info',
+          'Emergency Case Loaded',
+          `Scanned QR Code navigated directly to triage case ${foundCase.temporaryId}.`
+        );
+        try {
+          window.history.replaceState({}, '', window.location.pathname);
+        } catch {}
+      }
+    }
+  }, [patients, emergencyCases, pendingQRTarget, showToast]);
+
   // Auth Handlers
   const handleLoginSuccess = (user: User) => {
     setCurrentUser(user);
     localStorage.setItem('emergency_care_user', JSON.stringify(user));
+
+    if (pendingQRTarget && patients.length > 0) {
+      const found = patients.find((p) => p.id.toLowerCase() === pendingQRTarget.toLowerCase());
+      if (found) {
+        setSelectedPatient(found);
+        setActiveView('patient-profile');
+        setPendingQRTarget(null);
+        showToast(
+          'success',
+          `Welcome, ${user.name}`,
+          `Directly navigated to scanned patient ${found.fullName} (${found.id}).`
+        );
+        return;
+      }
+    }
+
     setActiveView('dashboard');
     showToast('success', `Welcome, ${user.name}`, 'Authorized session initialized.');
   };
@@ -190,7 +267,12 @@ function MediLockerApp() {
 
   // Unauthenticated: Show Login View
   if (!currentUser) {
-    return <LoginView onLoginSuccess={handleLoginSuccess} />;
+    return (
+      <LoginView
+        onLoginSuccess={handleLoginSuccess}
+        pendingQRTarget={pendingQRTarget}
+      />
+    );
   }
 
   // Active counts
@@ -238,6 +320,8 @@ function MediLockerApp() {
           geminiConfigured={geminiConfigured}
           isSidebarCollapsed={sidebarCollapsed}
           onToggleSidebarCollapse={toggleSidebarCollapse}
+          hospitalName={currentUser?.hospitalName}
+          onOpenSettings={() => navigateTo('settings')}
         />
 
         {/* Scrollable Viewport */}

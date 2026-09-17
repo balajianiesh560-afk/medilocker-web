@@ -12,12 +12,44 @@ export interface PatientQRPayload {
   blood?: string;
   allergies?: string;
   issuedAt: string;
+  appUrl?: string;
 }
 
 /**
- * Generates structured JSON payload for hospital wristband / badge QR code
+ * Returns a direct web application deep-link URL for a patient record.
+ * Scanning this with any smartphone camera opens the app directly to the patient's clinical profile.
  */
-export function createPatientQRPayload(patient: Patient): string {
+export function getPatientAppUrl(patientId: string): string {
+  if (typeof window !== 'undefined' && window.location) {
+    const origin = window.location.origin;
+    const pathname = window.location.pathname || '/';
+    return `${origin}${pathname}?patientId=${encodeURIComponent(patientId)}`;
+  }
+  return `https://medilocker.hospital/?patientId=${encodeURIComponent(patientId)}`;
+}
+
+/**
+ * Returns a direct web application deep-link URL for an emergency triage case.
+ */
+export function getEmergencyCaseAppUrl(caseId: string): string {
+  if (typeof window !== 'undefined' && window.location) {
+    const origin = window.location.origin;
+    const pathname = window.location.pathname || '/';
+    return `${origin}${pathname}?caseId=${encodeURIComponent(caseId)}`;
+  }
+  return `https://medilocker.hospital/?caseId=${encodeURIComponent(caseId)}`;
+}
+
+/**
+ * Generates payload for hospital wristband / badge QR code.
+ * Defaults to the direct App URL so scanning with any phone camera or barcode scanner
+ * opens the patient profile directly inside the application, instead of raw text.
+ */
+export function createPatientQRPayload(patient: Patient, mode: 'url' | 'json' = 'url'): string {
+  if (mode === 'url') {
+    return getPatientAppUrl(patient.id);
+  }
+
   const payload: PatientQRPayload = {
     system: 'MediLocker',
     version: '1.0',
@@ -28,15 +60,21 @@ export function createPatientQRPayload(patient: Patient): string {
     blood: patient.bloodType || 'Unknown',
     allergies: patient.allergies || 'NKDA',
     issuedAt: new Date().toISOString(),
+    appUrl: getPatientAppUrl(patient.id),
   };
 
   return JSON.stringify(payload);
 }
 
 /**
- * Generates emergency triage payload for temporary accident cases
+ * Generates emergency triage payload for temporary accident cases.
+ * Defaults to the direct App URL.
  */
-export function createEmergencyCaseQRPayload(ec: EmergencyCase): string {
+export function createEmergencyCaseQRPayload(ec: EmergencyCase, mode: 'url' | 'json' = 'url'): string {
+  if (mode === 'url') {
+    return getEmergencyCaseAppUrl(ec.temporaryId || ec.id);
+  }
+
   return JSON.stringify({
     system: 'MediLocker',
     type: 'EMERGENCY_TRIAGE_TAG',
@@ -46,6 +84,7 @@ export function createEmergencyCaseQRPayload(ec: EmergencyCase): string {
     triageLevel: ec.triageLevel || 'Immediate',
     ref: ec.fingerprintRefId,
     dateTime: ec.dateTime,
+    appUrl: getEmergencyCaseAppUrl(ec.temporaryId || ec.id),
   });
 }
 
@@ -87,7 +126,43 @@ export interface QRScanResult {
 export function parseScannedQRContent(scannedText: string): QRScanResult {
   const clean = scannedText.trim();
 
-  // 1. Check if valid JSON
+  // 1. Check if it is a Web URL or contains query parameters
+  if (
+    clean.startsWith('http://') ||
+    clean.startsWith('https://') ||
+    clean.includes('?patientId=') ||
+    clean.includes('?caseId=') ||
+    clean.includes('?pid=') ||
+    clean.includes('?cid=')
+  ) {
+    try {
+      const urlStr = clean.startsWith('http')
+        ? clean
+        : `https://medilocker.hospital/${clean.startsWith('?') ? clean : '?' + clean}`;
+      const urlObj = new URL(urlStr);
+      const pid =
+        urlObj.searchParams.get('patientId') ||
+        urlObj.searchParams.get('pid') ||
+        urlObj.searchParams.get('id');
+      const cid =
+        urlObj.searchParams.get('caseId') ||
+        urlObj.searchParams.get('cid') ||
+        urlObj.searchParams.get('tempId');
+
+      if (pid || cid) {
+        return {
+          raw: clean,
+          patientId: pid || undefined,
+          emergencyCaseId: cid || undefined,
+          isEmergencyCareFormat: true,
+        };
+      }
+    } catch {
+      // Fall through to regex extraction
+    }
+  }
+
+  // 2. Check if valid JSON
   if (clean.startsWith('{') && clean.endsWith('}')) {
     try {
       const parsed = JSON.parse(clean);

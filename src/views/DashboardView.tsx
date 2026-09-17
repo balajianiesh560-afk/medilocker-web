@@ -13,6 +13,10 @@ import {
   ShieldAlert,
   ChevronRight,
   CheckCircle2,
+  Bell,
+  HeartPulse,
+  Building2,
+  Sparkles,
 } from 'lucide-react';
 import { Patient, EmergencyCase, ActiveView } from '../types';
 
@@ -44,6 +48,46 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
   return (
     <div className="space-y-6">
+      {/* Hospital Triage & Facility Command Bar */}
+      <div className="bg-gradient-to-r from-slate-900 via-slate-850 to-teal-950 text-white rounded-2xl p-4 border border-teal-500/30 shadow-md flex flex-col md:flex-row md:items-center justify-between gap-4 ecg-grid-pattern-dark">
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-xl bg-teal-500/20 border border-teal-500/40 flex items-center justify-center text-teal-300 shrink-0 shadow-inner">
+            <HeartPulse className="w-5 h-5 text-teal-400 animate-pulse" />
+          </div>
+          <div>
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-sm font-bold text-white tracking-tight">
+                Emergency Hospital Care Operations
+              </span>
+              <span className="text-[10px] uppercase font-mono tracking-wider px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 font-semibold flex items-center gap-1">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping" />
+                Live Intake Active
+              </span>
+            </div>
+            <p className="text-xs text-slate-400 mt-0.5">
+              Trauma Identification Unit • Centralized Cross-Hospital Biometric Locker
+            </p>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-2.5 text-xs text-slate-300 flex-wrap">
+          <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-800/80 border border-slate-700/80 text-xs">
+            <Sparkles className="w-3.5 h-3.5 text-teal-300" />
+            <span className="text-slate-400">AI Intelligence:</span>
+            <span className="font-semibold text-teal-300">Online Gemini 3.8</span>
+          </div>
+
+          <button
+            id="dashboard-notify-nav-btn"
+            onClick={() => onNavigate('notify')}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-teal-600/30 hover:bg-teal-600/50 border border-teal-500/40 text-teal-200 font-bold transition-all cursor-pointer shadow-xs"
+          >
+            <Bell className="w-3.5 h-3.5 text-teal-300" />
+            <span>Notify Doctors</span>
+          </button>
+        </div>
+      </div>
+
       {/* Trauma Alert Banner if there are unidentified emergency cases */}
       {unidentifiedEmergencyCases > 0 && (
         <div className="rounded-2xl bg-gradient-to-r from-rose-500 to-red-600 text-white p-5 shadow-lg shadow-rose-500/20 flex flex-col md:flex-row md:items-center justify-between gap-4">
@@ -166,7 +210,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       {/* Quick Buttons Row */}
       <div className="bg-white rounded-2xl border border-slate-200/80 p-5 shadow-xs">
         <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3">Quick Actions</h3>
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
           <button
             id="quick-btn-register"
             onClick={() => onNavigate('register-patient')}
@@ -210,16 +254,30 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           </button>
 
           <button
+            id="quick-btn-notify"
+            onClick={() => onNavigate('notify')}
+            className="flex items-center gap-3 p-3.5 rounded-xl border border-teal-200 bg-teal-50/30 hover:bg-teal-50 hover:border-teal-300 text-slate-800 transition-all text-left group"
+          >
+            <div className="w-10 h-10 rounded-lg bg-teal-600 text-white flex items-center justify-center group-hover:scale-105 transition-transform shrink-0 shadow-xs">
+              <Bell className="w-5 h-5" />
+            </div>
+            <div>
+              <p className="text-sm font-bold text-teal-950 leading-tight">Notify Doctors</p>
+              <p className="text-xs text-teal-700 mt-0.5">Treatment updates</p>
+            </div>
+          </button>
+
+          <button
             id="quick-btn-ai-assistant"
             onClick={() => onNavigate('ai-assistant')}
-            className="flex items-center gap-3 p-3.5 rounded-xl border border-teal-200 bg-teal-50/40 hover:bg-teal-50 hover:border-teal-300 text-slate-800 transition-all text-left group"
+            className="flex items-center gap-3 p-3.5 rounded-xl border border-slate-200 hover:border-sky-300 hover:bg-sky-50/40 text-slate-800 transition-all text-left group"
           >
             <div className="w-10 h-10 rounded-lg bg-gradient-to-tr from-teal-600 to-sky-600 text-white flex items-center justify-center group-hover:scale-105 transition-transform shrink-0 shadow-xs">
               <Bot className="w-5 h-5" />
             </div>
             <div>
-              <p className="text-sm font-bold text-teal-950 leading-tight">AI Assistant</p>
-              <p className="text-xs text-teal-700 mt-0.5">Clinical synthesis</p>
+              <p className="text-sm font-bold text-slate-900 leading-tight">AI Assistant</p>
+              <p className="text-xs text-slate-500 mt-0.5">Clinical reasoning</p>
             </div>
           </button>
         </div>
