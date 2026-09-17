@@ -387,6 +387,7 @@ export type ActiveView =
   | 'patient-profile'
   | 'emergency-case'
   | 'emergency-cases'
+  | 'doctor-voice'
   | 'ai-assistant'
   | 'global'
   | 'notify'

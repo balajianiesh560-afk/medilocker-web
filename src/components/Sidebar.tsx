@@ -15,6 +15,7 @@ import {
   Zap,
   Globe,
   Bell,
+  Mic,
 } from 'lucide-react';
 import { ActiveView, User } from '../types';
 
@@ -84,6 +85,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
       icon: AlertOctagon,
       badge: emergencyCount > 0 ? emergencyCount : undefined,
       badgeColor: 'bg-rose-500 text-white',
+    },
+    {
+      id: 'doctor-voice' as ActiveView,
+      label: 'Doctor Voice AI',
+      icon: Mic,
+      badge: 'குரல்',
+      badgeColor: 'bg-teal-500/20 text-teal-300 border border-teal-500/30',
+      highlight: true,
     },
     {
       id: 'ai-assistant' as ActiveView,

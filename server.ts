@@ -1826,6 +1826,21 @@ ${JSON.stringify(contextData, null, 2)}`;
   }
 });
 
+// Download SIH 2026 PPTX Presentation Deck
+app.get('/api/download-ppt', (_req, res) => {
+  const publicPpt = path.join(process.cwd(), 'public', 'SIH26047_MediKiosk_PitchDeck.pptx');
+  const distPpt = path.join(process.cwd(), 'dist', 'SIH26047_MediKiosk_PitchDeck.pptx');
+  const targetFile = fs.existsSync(publicPpt) ? publicPpt : distPpt;
+
+  if (fs.existsSync(targetFile)) {
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.presentationml.presentation');
+    res.setHeader('Content-Disposition', 'attachment; filename="SIH26047_MediKiosk_PitchDeck.pptx"');
+    return res.sendFile(targetFile);
+  } else {
+    return res.status(404).json({ error: 'Presentation file not found. Please generate it from the app.' });
+  }
+});
+
 // ---------------- Server Start & Vite Middleware ----------------
 
 async function startServer() {

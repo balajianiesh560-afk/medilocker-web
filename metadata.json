@@ -1,7 +1,7 @@
 {
   "name": "MediLocker",
   "description": "Hospital emergency patient identification, biometric matching, and secure medical locker platform for authorized staff.",
-  "requestFramePermissions": ["camera"],
+  "requestFramePermissions": ["camera", "microphone"],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }
 

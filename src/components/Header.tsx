@@ -1,5 +1,5 @@
 import React from 'react';
-import { Menu, AlertOctagon, Bot, Shield, Sparkles, QrCode, HeartPulse, Building2 } from 'lucide-react';
+import { Menu, AlertOctagon, Bot, Shield, Sparkles, QrCode, HeartPulse, Building2, Mic } from 'lucide-react';
 import { ActiveView } from '../types';
 
 interface HeaderProps {
@@ -7,6 +7,7 @@ interface HeaderProps {
   onOpenMobileSidebar: () => void;
   onQuickEmergencyCase: () => void;
   onOpenQRScanner?: () => void;
+  onOpenVoiceRounds?: () => void;
   geminiConfigured: boolean;
   isSidebarCollapsed?: boolean;
   onToggleSidebarCollapse?: () => void;
@@ -19,6 +20,7 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenMobileSidebar,
   onQuickEmergencyCase,
   onOpenQRScanner,
+  onOpenVoiceRounds,
   geminiConfigured,
   isSidebarCollapsed,
   onToggleSidebarCollapse,
@@ -53,6 +55,10 @@ export const Header: React.FC<HeaderProps> = ({
     'emergency-cases': {
       title: 'Emergency Cases Registry',
       subtitle: 'Log of temporary accident cases, physical remarks, and triage states',
+    },
+    'doctor-voice': {
+      title: 'Doctor Voice Rounds (குரல் உதவியாளர்)',
+      subtitle: 'Ask about patient details verbally • AI speaks back concise clinical summary in English and Tamil',
     },
     'ai-assistant': {
       title: 'MediLocker AI Assistant',
@@ -122,6 +128,20 @@ export const Header: React.FC<HeaderProps> = ({
             ER Unit
           </span>
         </div>
+
+        {/* Universal Doctor Voice Rounds Quick Button */}
+        {onOpenVoiceRounds && (
+          <button
+            id="header-voice-rounds-btn"
+            onClick={onOpenVoiceRounds}
+            className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-gradient-to-r from-teal-600 to-emerald-600 hover:from-teal-500 hover:to-emerald-500 active:scale-95 text-white font-bold text-xs transition-all cursor-pointer shadow-xs border border-teal-400/30"
+            title="Doctor Voice Assistant (பேசுங்கள்)"
+          >
+            <Mic className="w-3.5 h-3.5 text-teal-200 shrink-0" />
+            <span className="hidden md:inline">Doctor Voice AI</span>
+            <span className="text-[10px] bg-white/20 px-1 py-0.2 rounded font-mono hidden sm:inline">குரல்</span>
+          </button>
+        )}
 
         {/* Universal Scan QR Button */}
         {onOpenQRScanner && (

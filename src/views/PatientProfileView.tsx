@@ -25,6 +25,9 @@ import {
   RefreshCw,
   Key,
   Globe,
+  Volume2,
+  VolumeX,
+  Mic,
 } from 'lucide-react';
 import { Patient, AISummaryResult, CaseHistoryEntry, User } from '../types';
 import { api } from '../services/api';
@@ -33,6 +36,7 @@ import { Modal } from '../components/Modal';
 import { PatientQRCodeModal } from '../components/PatientQRCodeModal';
 import { ClinicalRecordsTabs } from '../components/clinical/ClinicalRecordsTabs';
 import { generateQRCodeDataURL, createPatientQRPayload } from '../utils/qrCode';
+import { speechController, generateSpokenPatientSummary } from '../services/voiceAssistant';
 
 interface PatientProfileViewProps {
   patient: Patient;
@@ -86,6 +90,43 @@ export const PatientProfileView: React.FC<PatientProfileViewProps> = ({
   const [isGeneratingSummary, setIsGeneratingSummary] = useState(false);
   const [showKeyModal, setShowKeyModal] = useState(false);
   const [apiKeyInput, setApiKeyInput] = useState(api.getStoredGeminiKey());
+
+  // Voice Briefing State
+  const [isVoiceSpeaking, setIsVoiceSpeaking] = useState(false);
+  const [voiceLang, setVoiceLang] = useState<'en-IN' | 'ta-IN'>('en-IN');
+
+  useEffect(() => {
+    const unsub = speechController.subscribe((speaking) => {
+      setIsVoiceSpeaking(speaking);
+    });
+    return () => {
+      unsub();
+      speechController.stop();
+    };
+  }, []);
+
+  const handleToggleVoiceSummary = (lang: 'en-IN' | 'ta-IN' = voiceLang) => {
+    if (isVoiceSpeaking) {
+      speechController.stop();
+      return;
+    }
+
+    setVoiceLang(lang);
+    const spokenData = generateSpokenPatientSummary(patient);
+    const textToSpeak = lang === 'ta-IN' ? spokenData.spokenSummaryTamil : spokenData.spokenSummary;
+    speechController.speak(textToSpeak, {
+      lang,
+      rate: 1.0,
+      onEnd: () => {
+        showToast('info', 'Voice Briefing Complete', `Summary for ${patient.fullName} finished playback.`);
+      },
+    });
+    showToast(
+      'success',
+      'Speaking Patient Briefing',
+      `Playing ${lang === 'ta-IN' ? 'Tamil' : 'English'} clinical voice audio for ${patient.fullName}`
+    );
+  };
 
   // Delete confirmation modal
   const [showDeleteModal, setShowDeleteModal] = useState(false);
@@ -244,6 +285,40 @@ export const PatientProfileView: React.FC<PatientProfileViewProps> = ({
               <span>Notify Doctor</span>
             </button>
           )}
+
+          {/* Doctor Voice Briefing Audio Playback Button */}
+          <div className="flex items-center rounded-xl bg-slate-900 p-0.5 border border-slate-700 shadow-sm">
+            <button
+              id="profile-listen-voice-btn"
+              onClick={() => handleToggleVoiceSummary(voiceLang)}
+              className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                isVoiceSpeaking
+                  ? 'bg-rose-500 hover:bg-rose-600 text-white animate-pulse'
+                  : 'bg-teal-500 hover:bg-teal-400 text-slate-950 shadow-xs'
+              }`}
+              title="Listen to clinical voice briefing aloud"
+            >
+              {isVoiceSpeaking ? (
+                <>
+                  <VolumeX className="w-3.5 h-3.5" />
+                  <span>Stop Voice</span>
+                </>
+              ) : (
+                <>
+                  <Volume2 className="w-3.5 h-3.5" />
+                  <span>Listen (குரல்)</span>
+                </>
+              )}
+            </button>
+
+            <button
+              onClick={() => handleToggleVoiceSummary(voiceLang === 'ta-IN' ? 'en-IN' : 'ta-IN')}
+              className="px-2 py-1.5 text-[11px] text-teal-300 hover:text-white font-semibold transition-colors cursor-pointer"
+              title="Switch voice audio between English and Tamil"
+            >
+              {voiceLang === 'ta-IN' ? 'English' : 'தமிழ்'}
+            </button>
+          </div>
 
           <button
             id="profile-ai-summary-btn"
